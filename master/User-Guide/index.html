@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  
+  
+  <link rel="shortcut icon" href="../img/favicon.ico">
+  <title>User Guide - Remote Shuffle - master</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700" />
+
+  <link rel="stylesheet" href="../css/theme.css" />
+  <link rel="stylesheet" href="../css/theme_extra.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css" />
+  
+  <script>
+    // Current page data
+    var mkdocs_page_name = "User Guide";
+    var mkdocs_page_input_path = "User-Guide.md";
+    var mkdocs_page_url = null;
+  </script>
+  
+  <script src="../js/jquery-2.1.1.min.js" defer></script>
+  <script src="../js/modernizr-2.8.3.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script> 
+  
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+        <a href=".." class="icon icon-home"> Remote Shuffle - master</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+                <ul class="current">
+                    <li class="toctree-l1 current"><a class="reference internal current" href="./">User Guide</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#contents">Contents</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#installation">Installation</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#developer-guide">Developer Guide</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#build-and-deploy">Build and Deploy</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#user-guide">User Guide</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#enable-remote-shuffle">Enable Remote Shuffle</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#configurations">Configurations</a>
+        <ul>
+    <li class="toctree-l4"><a class="reference internal" href="#shuffle-root-directory">Shuffle Root Directory</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#index-cache-size">Index Cache Size</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#number-of-threads-reading-data-files">Number of Threads Reading Data Files</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#number-of-threads-transitioning-index-files-when-index-cache-is-enabled">Number of Threads Transitioning Index Files (when index cache is enabled)</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#bypass-merge-sort-threshold">Bypass-merge-sort Threshold</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#configurations-fetching-port-for-hdfs">Configurations fetching port for HDFS</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#inherited-spark-shuffle-configurations">Inherited Spark Shuffle Configurations</a>
+    </li>
+    <li class="toctree-l4"><a class="reference internal" href="#deprecated-spark-shuffle-configurations">Deprecated Spark Shuffle Configurations</a>
+    </li>
+        </ul>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#performance-evaluation-tool">Performance Evaluation Tool</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                    </li>
+                </ul>
+                <ul>
+                    <li class="toctree-l1"><a class="reference internal" href="../OAP-Installation-Guide/">OAP Installation Guide</a>
+                    </li>
+                </ul>
+                <ul>
+                    <li class="toctree-l1"><a class="reference internal" href="../OAP-Developer-Guide/">OAP Developer Guide</a>
+                    </li>
+                </ul>
+                <ul>
+                    <li class="toctree-l1"><a class="" href="../../">Version Selector</a>
+                    </li>
+                </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="..">Remote Shuffle - master</a>
+      </nav>
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="..">Docs</a> &raquo;</li>
+    
+      
+    
+    <li>User Guide</li>
+    <li class="wy-breadcrumbs-aside">
+      
+    </li>
+  </ul>
+  
+  <hr/>
+</div>
+          <div role="main">
+            <div class="section">
+              
+                <h1 id="remote-shuffle">Remote Shuffle</h1>
+<h2 id="contents">Contents</h2>
+<ul>
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#userguide">User Guide</a></li>
+</ul>
+<h2 id="introduction">Introduction</h2>
+<p>Remote Shuffle is a Spark* ShuffleManager plugin, shuffling data through a remote Hadoop-compatible file system, as opposed to vanilla Spark's local-disks.</p>
+<p>This is an essential part of enabling Spark on disaggregated compute and storage architecture.</p>
+<h3 id="installation">Installation</h3>
+<p>We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to <a href="../OAP-Installation-Guide/">OAP-Installation-Guide</a> for more information. If you have finished <a href="../OAP-Installation-Guide/">OAP-Installation-Guide</a>, you can find compiled OAP jars in <code>$HOME/miniconda2/envs/oapenv/oap_jars/</code>.</p>
+<h2 id="developer-guide">Developer Guide</h2>
+<h3 id="build-and-deploy">Build and Deploy</h3>
+<p>We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to <a href="../OAP-Installation-Guide/">OAP-Installation-Guide</a> for more information. If you have finished <a href="../OAP-Installation-Guide/">OAP-Installation-Guide</a>, you can find compiled remote shuffle jars under <code>$HOME/miniconda2/envs/oapenv/oap_jars</code>.
+Then just skip this section and jump to <a href="#user-guide">User Guide</a>.</p>
+<p>Build this module using the following command in <code>OAP/oap-shuffle/remote-shuffle</code> folder. This file needs to be deployed on every compute node that runs Spark. Manually place it on all nodes or let resource manager do the work.</p>
+<pre><code>    mvn -DskipTests clean package 
+</code></pre>
+
+<h2 id="user-guide">User Guide</h2>
+<h3 id="enable-remote-shuffle">Enable Remote Shuffle</h3>
+<p>Add the <code>.jar</code> files to the classpath of Spark driver and executors: Put the
+following configurations in spark-defaults.conf or Spark submit command line arguments. </p>
+<p>Note: For DAOS users, DAOS Hadoop/Java API jars should also be included in the classpath as we leverage DAOS Hadoop filesystem.</p>
+<pre><code>    spark.executor.extraClassPath          $HOME/miniconda2/envs/oapenv/oap_jars/remote-shuffle-&lt;version&gt;.jar
+    spark.driver.extraClassPath            $HOME/miniconda2/envs/oapenv/oap_jars/remote-shuffle-&lt;version&gt;.jar
+</code></pre>
+
+<p>Enable the remote shuffle manager and specify the Hadoop storage system URI holding shuffle data.</p>
+<pre><code>    spark.shuffle.manager                      org.apache.spark.shuffle.remote.RemoteShuffleManager
+    spark.shuffle.remote.storageMasterUri      daos://default:1 # Or hdfs://namenode:port, file:///my/shuffle/dir
+</code></pre>
+
+<h3 id="configurations">Configurations</h3>
+<p>Configurations and tuning parameters that change the behavior of remote shuffle. Most of them should work well under default values.</p>
+<h4 id="shuffle-root-directory">Shuffle Root Directory</h4>
+<p>This is to configure the root directory holding remote shuffle files. For each Spark application, a
+directory named after application ID is created under this root directory.</p>
+<pre><code>    spark.shuffle.remote.filesRootDirectory     /shuffle
+</code></pre>
+
+<h4 id="index-cache-size">Index Cache Size</h4>
+<p>This is to configure the cache size for shuffle index files per executor. Shuffle data includes data files and
+index files. An index file is small but will be read many (the number of reducers) times. On a large scale, constantly
+reading these small index files from Hadoop Filesystem implementation(i.e. HDFS) is going to cause much overhead and latency. In addition, the shuffle files’
+transfer completely relies on the network between compute nodes and storage nodes. But the network inside compute nodes are
+not fully utilized. The index cache can eliminate the overhead of reading index files from storage cluster multiple times. By
+enabling index file cache, a reduce task fetches them from the remote executors who write them instead of reading from
+storage. If the remote executor doesn’t have a desired index file in its cache, it will read the file from storage and cache
+it locally. The feature can also be disabled by setting the value to zero.</p>
+<pre><code>    spark.shuffle.remote.index.cache.size        30m
+</code></pre>
+
+<h4 id="number-of-threads-reading-data-files">Number of Threads Reading Data Files</h4>
+<p>This is one of the parameters influencing shuffle read performance. It is to determine number of threads per executor reading shuffle data files from storage.</p>
+<pre><code>    spark.shuffle.remote.numReadThreads           5
+</code></pre>
+
+<h4 id="number-of-threads-transitioning-index-files-when-index-cache-is-enabled">Number of Threads Transitioning Index Files (when index cache is enabled)</h4>
+<p>This is one of the parameters influencing shuffle read performance. It is to determine the number of client and server threads that transmit index information from another executor’s cache. It is only valid when the index cache feature is enabled.</p>
+<pre><code>    spark.shuffle.remote.numIndexReadThreads      3
+</code></pre>
+
+<h4 id="bypass-merge-sort-threshold">Bypass-merge-sort Threshold</h4>
+<p>This threshold is used to decide using bypass-merge(hash-based) shuffle or not. By default we disable(by setting it to -1) 
+hash-based shuffle writer in remote shuffle, because when memory is relatively sufficient, sort-based shuffle writer is often more efficient than the hash-based one.
+Hash-based shuffle writer entails a merging process, performing 3x I/Os than total shuffle size: 1 time for read I/Os and 2 times for write I/Os, this can be an even larger overhead under remote shuffle:
+the 3x shuffle size is gone through network, arriving at a remote storage system.</p>
+<pre><code>    spark.shuffle.remote.bypassMergeThreshold     -1
+</code></pre>
+
+<h4 id="configurations-fetching-port-for-hdfs">Configurations fetching port for HDFS</h4>
+<p>When the backend storage is HDFS, we contact http://$host:$port/conf to fetch configurations. They were not locally loaded because we assume absence of local storage.</p>
+<pre><code>    spark.shuffle.remote.hdfs.storageMasterUIPort  50070
+</code></pre>
+
+<h4 id="inherited-spark-shuffle-configurations">Inherited Spark Shuffle Configurations</h4>
+<p>These configurations are inherited from upstream Spark, they are still supported in remote shuffle. More explanations can be found in <a href="https://spark.apache.org/docs/3.0.0/configuration.html#shuffle-behavior">Spark core docs</a> and <a href="https://spark.apache.org/docs/2.4.4/sql-performance-tuning.html">Spark SQL docs</a>.</p>
+<pre><code>    spark.reducer.maxSizeInFlight
+    spark.reducer.maxReqsInFlight
+    spark.reducer.maxBlocksInFlightPerAddress
+    spark.shuffle.compress
+    spark.shuffle.file.buffer
+    spark.shuffle.io.maxRetries
+    spark.shuffle.io.numConnectionsPerPeer
+    spark.shuffle.io.preferDirectBufs
+    spark.shuffle.io.retryWait
+    spark.shuffle.io.backLog
+    spark.shuffle.spill.compress
+    spark.shuffle.accurateBlockThreshold
+    spark.sql.shuffle.partitions
+</code></pre>
+
+<h4 id="deprecated-spark-shuffle-configurations">Deprecated Spark Shuffle Configurations</h4>
+<p>These configurations are deprecated and will not take effect.</p>
+<pre><code>    spark.shuffle.sort.bypassMergeThreshold        # Replaced by spark.shuffle.remote.bypassMergeThreshold 
+    spark.maxRemoteBlockSizeFetchToMem             # As we assume no local disks on compute nodes, shuffle blocks are all fetched to memory
+
+    spark.shuffle.service.enabled                  # All following configurations are related to External Shuffle Service. ESS &amp; remote shuffle cannot be enabled at the same time, as this remote shuffle facility takes over almost all functionalities of ESS.
+    spark.shuffle.service.port
+    spark.shuffle.service.index.cache.size
+    spark.shuffle.maxChunksBeingTransferred
+    spark.shuffle.registration.timeout
+    spark.shuffle.registration.maxAttempts
+</code></pre>
+
+<h3 id="performance-evaluation-tool">Performance Evaluation Tool</h3>
+<p>Leverage this tool to evaluate shuffle write/read performance separately under your specific storage system. This tool starts one Java process with #poolSize number of threads, running the specified remote-shuffle writers/readers in this module. Additional Spark configurations can be put in "./spark-defaults.conf" and will be loaded.(and printed as part of the summary for recording)</p>
+<p>Configuration details:
+* <code>-h</code> or <code>--help</code>: display help messages
+* <code>-m</code> or <code>--mappers</code>: the number of mappers, default to 5
+* <code>-r</code> or <code>--reducers</code>: the number of reducers, default to 5
+* <code>-p</code> or <code>--poolSize</code>: the number task threads in write/read thread pool, similar to spark.executor.cores. e.g. if mappers=15, poolSize=5, it takes 3 rounds to finish this job
+* <code>-n</code> or <code>--rows</code>: the number of rows per mapper, default to 1000
+* <code>-b</code> or <code>--shuffleBlockRawSize</code>: the size of each shuffle block, default to 20000 Bytes
+* <code>-w</code> or <code>--writer</code>: the type of shuffle writers for benchmark, can be one of general, unsafe and bypassmergesort, default to unsafe
+* <code>-onlyWrite</code> or <code>--onlyWrite</code>: containing this flag then the benchmark only includes shuffle write stage, default behavior is perform both write &amp; read
+* <code>-uri</code> or <code>--storageMasterUri</code>: Hadoop-compatible storage Master URI, default to file://
+* <code>-d</code> or <code>--dir</code>: Shuffle directory, default /tmp
+* <code>-l</code> or <code>--log</code>: Log level, default to WARN</p>
+<p>Sample command:</p>
+<pre><code>java -cp target/remote-shuffle-0.1-SNAPSHOT-test-jar-with-dependencies.jar org.apache.spark.shuffle.remote.PerformanceEvaluationTool -h
+</code></pre>
+
+<p>Sample output</p>
+<pre><code>unsafe shuffle writer:
+    raw total size:      123 GB
+    compressed size:     135 GB
+    duration:            88.3 seconds
+
+    throughput(raw):     1429.06843144412 MB/s
+    throughput(storage): 1570.9931870053674 MB/s
+
+    number of mappers:   210
+    number of reducers:  70
+    block size(raw):     8 MB
+    block size(storage): 9 MB
+
+    properties:          spark.reducer.maxSizeInFlight -&gt; 100m, spark.shuffle.remote.numReadThreads -&gt; 8, spark.shuffle.remote.reducer.maxBlocksInFlightPerAddress -&gt; 3
+
+    records per mapper:  70
+    load size per record:9000000
+
+    shuffle storage      daos://default:1
+    shuffle folder:      /tmp/shuffle
+-------------------------------------------------------------------------------------------------------------------------
+shuffle reader:
+    raw total size:      123 GB
+    compressed size:     135 GB
+    duration:            49.8 seconds
+
+    throughput(raw):     2533.665772753123 MB/s
+    throughput(storage): 2785.2911586057153 MB/s
+
+    number of mappers:   210
+    number of reducers:  70
+    block size(raw):     8 MB
+    block size(storage): 9 MB
+
+    properties:          spark.reducer.maxSizeInFlight -&gt; 100m, spark.shuffle.remote.numReadThreads -&gt; 8, spark.shuffle.remote.reducer.maxBlocksInFlightPerAddress -&gt; 3
+
+    records per mapper:  70
+    load size per record:9000000
+
+    shuffle storage      daos://default:1
+    shuffle folder:      /tmp/shuffle                                                      
+</code></pre>
+              
+            </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="../OAP-Installation-Guide/" class="btn btn-neutral float-right" title="OAP Installation Guide">Next <span class="icon icon-circle-arrow-right"></span></a>
+      
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+    
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+      
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      
+      
+      
+        <span style="margin-left: 15px"><a href="../OAP-Installation-Guide/" style="color: #fcfcfc">Next &raquo;</a></span>
+      
+    </span>
+</div>
+    <script>var base_url = '..';</script>
+    <script src="../js/theme.js" defer></script>
+      <script src="../search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>
