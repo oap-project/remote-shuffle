@@ -6,8 +6,8 @@ jobs:
   include:
     - name: oap-shuffle-remote-shuffle
       before_install:
-              - MAVEN_OPTS="-Xmx2048m"        
+              - MAVEN_OPTS="-Xmx2948m"        
       install:
       - #empty install step
       script:
-      - mvn -q test
+      - mvn clean install

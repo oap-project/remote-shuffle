@@ -129,7 +129,7 @@ public class DaosShuffleInputStreamTest {
     Map<String, AtomicInteger> maps = new HashMap<>();
     maps.put("2", new AtomicInteger(0));
     maps.put("4", new AtomicInteger(0));
-    readFromOtherThreadCancelMultipleTimes(maps, 400);
+    readFromOtherThreadCancelMultipleTimes(maps, 800);
   }
 
   @Test
