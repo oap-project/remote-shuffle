@@ -5,10 +5,6 @@ jdk: openjdk8
 jobs:
   include:
     - name: oap-shuffle-remote-shuffle
-      before_install:
-      - sudo rm /etc/mavenrc
-      - export M2_HOME=/usr/local/maven
-      - export MAVEN_OPTS="-Dmaven.repo.local=$HOME/.m2/repository -Xmx3072m"
       install:
       - #empty install step
       script:
