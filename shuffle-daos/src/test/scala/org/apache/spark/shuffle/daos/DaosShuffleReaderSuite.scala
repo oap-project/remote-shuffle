@@ -35,21 +35,22 @@ import org.apache.spark._
 import org.apache.spark.internal.config
 import org.apache.spark.serializer.{JavaSerializer, SerializerManager}
 import org.apache.spark.shuffle.BaseShuffleHandle
+import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
 import org.apache.spark.storage.{BlockManagerId, ShuffleBlockId}
 
 class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    logInfo("start executors in DaosReader " + classOf[DaosReader])
+    logInfo("start executors in DaosReaderSync " + classOf[DaosReaderSync])
     MockitoAnnotations.initMocks(this)
   }
 
   private def mockObjectsForSingleDaosCall(reduceId: Int, numMaps: Int, byteOutputStream: ByteArrayOutputStream):
     (DaosReader, DaosShuffleIO, DaosObject) = {
     // mock
-    val daosReader: DaosReader = Mockito.mock(classOf[DaosReader])
     val daosObject = Mockito.mock(classOf[DaosObject])
+    val daosReader: DaosReaderSync = new DaosReaderSync(daosObject, new ReaderConfig(), null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
 
     val desc = Mockito.mock(classOf[IODataDesc])
@@ -74,8 +75,10 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
   (DaosReader, DaosShuffleIO, DaosObject) = {
     // mock
     val daosObject = Mockito.mock(classOf[DaosObject])
-    val daosReader: DaosReader =
-      if (executors != null) Mockito.spy(new DaosReader(daosObject, executors)) else Mockito.mock(classOf[DaosReader])
+    val daosReader: DaosReaderSync =
+      if (executors != null) Mockito.spy(new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(),
+        executors.nextExecutor()))
+      else new DaosReaderSync(daosObject, new ReaderConfig(), null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
     val descList = new util.ArrayList[IODataDesc]
 
@@ -177,7 +180,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
     }
 
     when(shuffleIO.getDaosReader(shuffleId)).thenReturn(daosReader)
-    when(daosReader.getObject).thenReturn(daosObject)
+    //    when(daosReader.getObject).thenReturn(daosObject)
 
     val shuffleReader = new DaosShuffleReader[Int, Int](
       shuffleHandle,
@@ -205,7 +208,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
   }
 
   test("test reader daos multiple times from other thread") {
-    val executors = new BoundThreadExecutors("read_executors", 1, new DaosReader.ReadThreadFactory)
+    val executors = new BoundThreadExecutors("read_executors", 1, new DaosReaderSync.ReadThreadFactory)
     testRead(7168, 6, false, executors)
     executors.stop()
   }

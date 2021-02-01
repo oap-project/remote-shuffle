@@ -29,7 +29,6 @@ import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
-import org.apache.spark.util.collection.SizeTrackingAppendOnlyMap
 
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
@@ -88,7 +87,6 @@ class MapPartitionsWriter[K, V, C](
 
   def insertAll(records: Iterator[Product2[K, V]]): Unit = {
     // TODO: stop combining if we find that the reduction factor isn't high
-    val start = System.nanoTime();
     val shouldCombine = aggregator.isDefined
     if (shouldCombine) {
       // Combine values in-memory first using our AppendOnlyMap
