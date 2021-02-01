@@ -23,80 +23,20 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.BufferAllocator;
-import io.daos.DaosIOException;
-import io.daos.obj.DaosObject;
-import io.daos.obj.IODataDesc;
-import io.netty.buffer.ByteBuf;
-import io.netty.util.internal.ObjectPool;
+import org.apache.spark.SparkConf;
+import org.apache.spark.SparkEnv;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.*;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
 
 /**
  * A DAOS writer per map task which may have multiple map output partitions.
- * Each partition has one corresponding {@link NativeBuffer} which caches records until
- * a specific {@link #flush(int)} call being made. Then {@link NativeBuffer} creates
- * {@link IODataDesc} and write to DAOS in either caller thread or other dedicated thread.
+ * Each partition has one corresponding buffer which caches records until
+ * a specific {@link #flush(int)} call being made. Data is written to DAOS
+ * in either caller thread or other dedicated thread.
  */
-public class DaosWriter extends TaskSubmitter {
-
-  private DaosObject object;
-
-  private String mapId;
-
-  private WriteParam param;
-
-  private WriteConfig config;
-
-  private Map<DaosWriter, Integer> writerMap;
-
-  private NativeBuffer[] partitionBufArray;
-
-  private int totalTimeoutTimes;
-
-  private int totalWriteTimes;
-
-  private int totalBySelfTimes;
-
-  private volatile boolean cleaned;
-
-  private static Logger LOG = LoggerFactory.getLogger(DaosWriter.class);
-
-  /**
-   * construct DaosWriter with <code>object</code> and dedicated read <code>executors</code>.
-   *
-   * @param param
-   * write parameters
-   * @param object
-   * opened DaosObject
-   * @param executor
-   * null means write in caller's thread. Submit {@link WriteTask} to it otherwise.
-   */
-  public DaosWriter(DaosWriter.WriteParam param, DaosObject object,
-                    BoundThreadExecutors.SingleThreadExecutor executor) {
-    super(executor);
-    this.param = param;
-    this.config = param.config;
-    this.partitionBufArray = new NativeBuffer[param.numPartitions];
-    this.mapId = String.valueOf(param.mapId);
-    this.object = object;
-  }
-
-  private NativeBuffer getNativeBuffer(int partitionId) {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      buffer = new NativeBuffer(partitionId, config.bufferSize);
-      partitionBufArray[partitionId] = buffer;
-    }
-    return buffer;
-  }
+public interface DaosWriter {
 
   /**
    * write to buffer.
@@ -104,9 +44,7 @@ public class DaosWriter extends TaskSubmitter {
    * @param partitionId
    * @param b
    */
-  public void write(int partitionId, int b) {
-    getNativeBuffer(partitionId).write(b);
-  }
+  void write(int partitionId, int b);
 
   /**
    * write to buffer.
@@ -114,9 +52,7 @@ public class DaosWriter extends TaskSubmitter {
    * @param partitionId
    * @param array
    */
-  public void write(int partitionId, byte[] array) {
-    getNativeBuffer(partitionId).write(array);
-  }
+  void write(int partitionId, byte[] array);
 
   /**
    * write to buffer.
@@ -126,9 +62,7 @@ public class DaosWriter extends TaskSubmitter {
    * @param offset
    * @param len
    */
-  public void write(int partitionId, byte[] array, int offset, int len) {
-    getNativeBuffer(partitionId).write(array, offset, len);
-  }
+  void write(int partitionId, byte[] array, int offset, int len);
 
   /**
    * get length of all partitions.
@@ -137,32 +71,7 @@ public class DaosWriter extends TaskSubmitter {
    * @param numPartitions
    * @return array of partition lengths
    */
-  public long[] getPartitionLens(int numPartitions) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("partition map size: " + partitionBufArray.length);
-      for (int i = 0; i < numPartitions; i++) {
-        NativeBuffer nb = partitionBufArray[i];
-        if (nb != null) {
-          LOG.debug("id: " + i + ", native buffer: " + nb.partitionId + ", " +
-                  nb.totalSize + ", " + nb.roundSize);
-        }
-      }
-    }
-    long[] lens = new long[numPartitions];
-    for (int i = 0; i < numPartitions; i++) {
-      NativeBuffer nb = partitionBufArray[i];
-      if (nb != null) {
-        lens[i] = nb.totalSize;
-        if (nb.roundSize != 0 || !nb.bufList.isEmpty()) {
-          throw new IllegalStateException("round size should be 0, " + nb.roundSize + ", buflist should be empty, " +
-                  nb.bufList.size());
-        }
-      } else {
-        lens[i] = 0;
-      }
-    }
-    return lens;
-  }
+  long[] getPartitionLens(int numPartitions);
 
   /**
    * Flush specific partition to DAOS.
@@ -170,280 +79,17 @@ public class DaosWriter extends TaskSubmitter {
    * @param partitionId
    * @throws IOException
    */
-  public void flush(int partitionId) throws IOException {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      return;
-    }
-    IODataDesc desc = buffer.createUpdateDesc();
-    if (desc == null) {
-      return;
-    }
-    totalWriteTimes++;
-    if (config.warnSmallWrite && buffer.roundSize < config.minSize) {
-      LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
-          buffer.roundSize, param.shuffleId, mapId, partitionId);
-    }
-    if (executor == null) { // run write by self
-      runBySelf(desc, buffer);
-      return;
-    }
-    submitToOtherThreads(desc, buffer);
-  }
-
-  private void runBySelf(IODataDesc desc, NativeBuffer buffer) throws IOException {
-    totalBySelfTimes++;
-    try {
-      object.update(desc);
-    } catch (IOException e) {
-      throw new IOException("failed to write partition of " + desc, e);
-    } finally {
-      desc.release();
-      buffer.reset(true);
-    }
-  }
-
-  private void submitToOtherThreads(IODataDesc desc, NativeBuffer buffer) throws IOException {
-    // move forward to release write buffers
-    moveForward();
-    // check if we need to wait submitted tasks to be executed
-    if (goodForSubmit()) {
-      submitAndReset(desc, buffer);
-      return;
-    }
-    // to wait
-    int timeoutTimes = 0;
-    try {
-      while (!goodForSubmit()) {
-        boolean timeout = waitForCondition(config.waitTimeMs);
-        moveForward();
-        if (timeout) {
-          timeoutTimes++;
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("wait daos write timeout times: " + timeoutTimes);
-          }
-          if (timeoutTimes >= config.timeoutTimes) {
-            totalTimeoutTimes += timeoutTimes;
-            runBySelf(desc, buffer);
-            return;
-          }
-        }
-      }
-    } catch (InterruptedException e) {
-      desc.release();
-      Thread.currentThread().interrupt();
-      throw new IOException("interrupted when wait daos write", e);
-    }
-    // submit write task after some wait
-    totalTimeoutTimes += timeoutTimes;
-    submitAndReset(desc, buffer);
-  }
-
-  private boolean goodForSubmit() {
-    return totalInMemSize < config.totalInMemSize && totalSubmitted < config.totalSubmittedLimit;
-  }
-
-  private void submitAndReset(IODataDesc desc, NativeBuffer buffer) {
-    try {
-      submit(desc, buffer.bufList);
-    } finally {
-      buffer.reset(false);
-    }
-  }
-
-  private void cleanup(boolean force) {
-    if (cleaned) {
-      return;
-    }
-    boolean allReleased = true;
-    allReleased &= cleanupSubmitted(force);
-    allReleased &= cleanupConsumed(force);
-    if (allReleased) {
-      cleaned = true;
-    }
-  }
+  void flush(int partitionId) throws IOException;
 
   /**
-   * wait write task to be completed and clean up resources.
+   * close writer.
    */
-  public void close() {
-    try {
-      close(true);
-    } catch (Exception e) {
-      throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
-    }
-  }
-
-  private void close(boolean force) throws Exception {
-    if (partitionBufArray != null) {
-      waitCompletion(force);
-      partitionBufArray = null;
-      object = null;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("total writes: " + totalWriteTimes + ", total timeout times: " + totalTimeoutTimes +
-            ", total write-by-self times: " + totalBySelfTimes + ", total timeout times/total writes: " +
-            ((float) totalTimeoutTimes) / totalWriteTimes);
-      }
-    }
-    cleanup(force);
-    if (writerMap != null && (force || cleaned)) {
-      writerMap.remove(this);
-      writerMap = null;
-    }
-  }
-
-  private void waitCompletion(boolean force) throws Exception {
-    if (!force) {
-      return;
-    }
-    try {
-      while (totalSubmitted > 0) {
-        waitForCondition(config.waitTimeMs);
-        moveForward();
-      }
-    } catch (Exception e) {
-      LOG.error("failed to wait completion of daos writing", e);
-      throw e;
-    }
-  }
-
-  public void setWriterMap(Map<DaosWriter, Integer> writerMap) {
-    writerMap.put(this, 0);
-    this.writerMap = writerMap;
-  }
-
-  @Override
-  protected Runnable newTask(LinkedTaskContext context) {
-    return WriteTask.newInstance((WriteTaskContext) context);
-  }
-
-  @Override
-  protected LinkedTaskContext createTaskContext(IODataDesc desc, Object morePara) {
-    return new WriteTaskContext(object, counter, lock, condition, desc, morePara);
-  }
-
-  @Override
-  protected boolean validateReturned(LinkedTaskContext context) throws IOException {
-    if (!context.desc.isSucceeded()) {
-      throw new DaosIOException("write is not succeeded: " + context.desc);
-    }
-    return false;
-  }
-
-  @Override
-  protected boolean consumed(LinkedTaskContext context) {
-    // release write buffers
-    List<ByteBuf> bufList = (List<ByteBuf>) context.morePara;
-    bufList.forEach(b -> b.release());
-    bufList.clear();
-    return true;
-  }
-
-  /**
-   * Write data to one or multiple netty direct buffers which will be written to DAOS without copy
-   */
-  private class NativeBuffer implements Comparable<NativeBuffer> {
-    private int partitionId;
-    private String partitionIdKey;
-    private int bufferSize;
-    private int idx = -1;
-    private List<ByteBuf> bufList = new ArrayList<>();
-    private long totalSize;
-    private long roundSize;
-
-    NativeBuffer(int partitionId, int bufferSize) {
-      this.partitionId = partitionId;
-      this.partitionIdKey = String.valueOf(partitionId);
-      this.bufferSize = bufferSize;
-    }
-
-    private ByteBuf addNewByteBuf(int len) {
-      ByteBuf buf;
-      try {
-        buf = BufferAllocator.objBufWithNativeOrder(Math.max(bufferSize, len));
-      } catch (OutOfMemoryError e) {
-        LOG.error("too big buffer size: " + Math.max(bufferSize, len));
-        throw e;
-      }
-      bufList.add(buf);
-      idx++;
-      return buf;
-    }
-
-    private ByteBuf getBuffer(int len) {
-      if (idx < 0) {
-        return addNewByteBuf(len);
-      }
-      return bufList.get(idx);
-    }
-
-    public void write(int b) {
-      ByteBuf buf = getBuffer(1);
-      if (buf.writableBytes() < 1) {
-        buf = addNewByteBuf(1);
-      }
-      buf.writeByte(b);
-      roundSize += 1;
-    }
-
-    public void write(byte[] b) {
-      write(b, 0, b.length);
-    }
-
-    public void write(byte[] b, int offset, int len) {
-      if (len <= 0) {
-        return;
-      }
-      ByteBuf buf = getBuffer(len);
-      int avail = buf.writableBytes();
-      int gap = len - avail;
-      if (gap <= 0) {
-        buf.writeBytes(b, offset, len);
-      } else {
-        buf.writeBytes(b, offset, avail);
-        buf = addNewByteBuf(gap);
-        buf.writeBytes(b, avail, gap);
-      }
-      roundSize += len;
-    }
-
-    public IODataDesc createUpdateDesc() throws IOException {
-      if (roundSize == 0 || bufList.isEmpty()) {
-        return null;
-      }
-      long bufSize = 0;
-      IODataDesc desc = object.createDataDescForUpdate(partitionIdKey, IODataDesc.IodType.ARRAY, 1);
-      for (ByteBuf buf : bufList) {
-        desc.addEntryForUpdate(mapId, (int) totalSize, buf);
-        bufSize += buf.readableBytes();
-      }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
-      return desc;
-    }
-
-    public void reset(boolean release) {
-      if (release) {
-        bufList.forEach(b -> b.release());
-      }
-      // release==false, buffers will be released when tasks are executed and consumed
-      bufList.clear();
-      idx = -1;
-      totalSize += roundSize;
-      roundSize = 0;
-    }
-
-    @Override
-    public int compareTo(NativeBuffer nativeBuffer) {
-      return partitionId - nativeBuffer.partitionId;
-    }
-  }
+  void close();
 
   /**
    * Write configurations. Please check configs prefixed with SHUFFLE_DAOS_WRITE in {@link package$#MODULE$}.
    */
-  public static class WriteConfig {
+  class WriterConfig {
     private int bufferSize;
     private int minSize;
     private boolean warnSmallWrite;
@@ -454,50 +100,26 @@ public class DaosWriter extends TaskSubmitter {
     private int threads;
     private boolean fromOtherThreads;
 
-    public WriteConfig bufferSize(int bufferSize) {
-      this.bufferSize = bufferSize;
-      return this;
+    private static final Logger logger = LoggerFactory.getLogger(WriterConfig.class);
+
+    WriterConfig() {
+      SparkConf conf = SparkEnv.get().conf();
+      warnSmallWrite = (boolean) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WARN_SMALL_SIZE());
+      bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
+          * 1024 * 1024);
+      minSize = (int) ((long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MINIMUM_SIZE()) * 1024);
+      timeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES());
+      waitTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_MS());
+      totalInMemSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MAX_BYTES_IN_FLIGHT()) * 1024;
+      totalSubmittedLimit = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SUBMITTED_LIMIT());
+      threads = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_THREADS());
+      fromOtherThreads = (boolean)conf
+          .get(package$.MODULE$.SHUFFLE_DAOS_WRITE_IN_OTHER_THREAD());
+      if (logger.isDebugEnabled()) {
+        logger.debug(toString());
+      }
     }
 
-    public WriteConfig minSize(int minSize) {
-      this.minSize = minSize;
-      return this;
-    }
-
-    public WriteConfig warnSmallWrite(boolean warnSmallWrite) {
-      this.warnSmallWrite = warnSmallWrite;
-      return this;
-    }
-
-    public WriteConfig waitTimeMs(long waitTimeMs) {
-      this.waitTimeMs = waitTimeMs;
-      return this;
-    }
-
-    public WriteConfig timeoutTimes(int timeoutTimes) {
-      this.timeoutTimes = timeoutTimes;
-      return this;
-    }
-
-    public WriteConfig totalInMemSize(long totalInMemSize) {
-      this.totalInMemSize = totalInMemSize;
-      return this;
-    }
-
-    public WriteConfig totalSubmittedLimit(int totalSubmittedLimit) {
-      this.totalSubmittedLimit = totalSubmittedLimit;
-      return this;
-    }
-
-    public WriteConfig threads(int threads) {
-      this.threads = threads;
-      return this;
-    }
-
-    public WriteConfig fromOtherThreads(boolean fromOtherThreads) {
-      this.fromOtherThreads = fromOtherThreads;
-      return this;
-    }
 
     public int getBufferSize() {
       return bufferSize;
@@ -548,143 +170,6 @@ public class DaosWriter extends TaskSubmitter {
           ", threads=" + threads +
           ", fromOtherThreads=" + fromOtherThreads +
           '}';
-    }
-  }
-
-  public static class WriteParam {
-    private int numPartitions;
-    private int shuffleId;
-    private long mapId;
-    private WriteConfig config;
-
-    public WriteParam numPartitions(int numPartitions) {
-      this.numPartitions = numPartitions;
-      return this;
-    }
-
-    public WriteParam shuffleId(int shuffleId) {
-      this.shuffleId = shuffleId;
-      return this;
-    }
-
-    public WriteParam mapId(long mapId) {
-      this.mapId = mapId;
-      return this;
-    }
-
-    public WriteParam config(WriteConfig config) {
-      this.config = config;
-      return this;
-    }
-  }
-
-  /**
-   * Task to write data to DAOS. Task itself is cached to reduce GC time.
-   * To reuse task for different writes, prepare and reset {@link WriteTaskContext} by calling
-   * {@link #newInstance(WriteTaskContext)}
-   */
-  static final class WriteTask implements Runnable {
-    private final ObjectPool.Handle<WriteTask> handle;
-    private WriteTaskContext context;
-
-    private static final ObjectPool<WriteTask> objectPool = ObjectPool.newPool(handle -> new WriteTask(handle));
-
-    private static final Logger log = LoggerFactory.getLogger(WriteTask.class);
-
-    static WriteTask newInstance(WriteTaskContext context) {
-      WriteTask task = objectPool.get();
-      task.context = context;
-      return task;
-    }
-
-    private WriteTask(ObjectPool.Handle<WriteTask> handle) {
-      this.handle = handle;
-    }
-
-    @Override
-    public void run() {
-      boolean cancelled = context.cancelled;
-      try {
-        if (!cancelled) {
-          context.object.update(context.desc);
-        }
-      } catch (Exception e) {
-        log.error("failed to write for " + context.desc, e);
-      } finally {
-        context.desc.release();
-        context.signal();
-        context = null;
-        handle.recycle(this);
-      }
-    }
-  }
-
-  /**
-   * Context for write task. It holds all other object to read and sync between caller thread and write thread.
-   * It should be cached in caller thread for reusing.
-   */
-  static final class WriteTaskContext extends LinkedTaskContext {
-
-    /**
-     * constructor with all parameters. Some of them can be reused later.
-     *
-     * @param object
-     * DAOS object to fetch data from DAOS
-     * @param counter
-     * counter to indicate how many write is on-going
-     * @param writeLock
-     * lock to work with <code>notFull</code> condition to signal caller thread to submit more write task
-     * @param notFull
-     * condition to signal caller thread
-     * @param desc
-     * desc object to describe where to write data
-     * @param bufList
-     * list of buffers to write to DAOS
-     */
-    WriteTaskContext(DaosObject object, AtomicInteger counter, Lock writeLock, Condition notFull,
-                            IODataDesc desc, Object bufList) {
-      super(object, counter, writeLock, notFull);
-      this.desc = desc;
-      List<ByteBuf> myBufList = new ArrayList<>();
-      myBufList.addAll((List<ByteBuf>) bufList);
-      this.morePara = myBufList;
-    }
-
-    @Override
-    public WriteTaskContext getNext() {
-      return (WriteTaskContext) next;
-    }
-
-    @Override
-    public void reuse(IODataDesc desc, Object morePara) {
-      List<ByteBuf> myBufList = (List<ByteBuf>) this.morePara;
-      if (!myBufList.isEmpty()) {
-        throw new IllegalStateException("bufList in reusing write task context should be empty");
-      }
-      myBufList.addAll((List<ByteBuf>) morePara);
-      super.reuse(desc, myBufList);
-    }
-  }
-
-  /**
-   * Thread factory for write
-   */
-  protected static class WriteThreadFactory implements ThreadFactory {
-    private AtomicInteger id = new AtomicInteger(0);
-
-    @Override
-    public Thread newThread(Runnable runnable) {
-      Thread t;
-      String name = "daos_write_" + id.getAndIncrement();
-      if (runnable == null) {
-        t = new Thread(name);
-      } else {
-        t = new Thread(runnable, name);
-      }
-      t.setDaemon(true);
-      t.setUncaughtExceptionHandler((thread, throwable) ->
-          LOG.error("exception occurred in thread " + name, throwable));
-      return t;
     }
   }
 }

@@ -26,7 +26,9 @@ package org.apache.spark.shuffle.daos;
 import io.daos.obj.DaosObjClient;
 import io.daos.obj.DaosObject;
 import io.daos.obj.DaosObjectId;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -46,7 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("javax.management.*")
-@PrepareForTest(DaosShuffleIO.class)
+@PrepareForTest(IOManager.class)
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
 public class DaosShuffleIOTest {
 
@@ -54,11 +56,16 @@ public class DaosShuffleIOTest {
   public void testSingleObjectInstanceOpen() throws Exception {
     SparkConf testConf = new SparkConf(false);
     testConf.set(package$.MODULE$.SHUFFLE_DAOS_READ_FROM_OTHER_THREAD(), false);
+    testConf.set(package$.MODULE$.SHUFFLE_DAOS_IO_ASYNC(), false);
     long appId = 1234567;
     int shuffleId = 1;
     testConf.set("spark.app.id", String.valueOf(appId));
-    Field clientField = DaosShuffleIO.class.getDeclaredField("objClient");
+    Field clientField = IOManager.class.getDeclaredField("objClient");
     clientField.setAccessible(true);
+
+    UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("test"));
+    SparkContext sc = new SparkContext("local", "test", testConf);
+
     DaosShuffleIO io = new DaosShuffleIO(testConf);
 
     DaosObjectId id = PowerMockito.mock(DaosObjectId.class);
@@ -77,7 +84,7 @@ public class DaosShuffleIOTest {
       open.compareAndSet(false, true);
       return invocationOnMock;
     }).when(daosObject).open();
-    clientField.set(io, client);
+    clientField.set(io.getIoManager(), client);
 
     int numThreads = 50;
     ExecutorService es = Executors.newFixedThreadPool(numThreads);
@@ -102,5 +109,6 @@ public class DaosShuffleIOTest {
     es.awaitTermination(5, TimeUnit.SECONDS);
 
     Assert.assertEquals(50, count.intValue());
+    sc.stop();
   }
 }

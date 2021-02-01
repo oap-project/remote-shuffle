@@ -27,7 +27,6 @@ import io.daos.obj.DaosObjClient;
 import io.daos.obj.DaosObject;
 import io.daos.obj.DaosObjectId;
 import io.daos.obj.IODataDesc;
-import org.apache.spark.SparkConf;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -53,14 +52,14 @@ public class DaosWriterTest {
 
   @Test
   public void testGetLensWithAllEmptyPartitions() {
-    DaosWriter.WriteConfig writeConfig = DaosShuffleIO.loadWriteConfig(new SparkConf(false));
-    DaosWriter.WriteParam param = new DaosWriter.WriteParam();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
         .shuffleId(1)
         .mapId(1)
         .config(writeConfig);
-    DaosWriter writer = new DaosWriter(param, null, null);
+    DaosWriterSync writer = new DaosWriterSync(null, param, null);
     long[] lens = writer.getPartitionLens(numPart);
     Assert.assertEquals(numPart, lens.length);
     for (int i = 0; i < numPart; i++) {
@@ -81,14 +80,14 @@ public class DaosWriterTest {
 
     Mockito.doNothing().when(daosObject).update(any(IODataDesc.class));
 
-    DaosWriter.WriteConfig writeConfig = DaosShuffleIO.loadWriteConfig(new SparkConf(false));
-    DaosWriter.WriteParam param = new DaosWriter.WriteParam();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
         .shuffleId(1)
         .mapId(1)
         .config(writeConfig);
-    DaosWriter writer = new DaosWriter(param, daosObject, null);
+    DaosWriterSync writer = new DaosWriterSync(daosObject, param, null);
     Map<Integer, Integer> expectedLens = new HashMap<>();
     Random random = new Random();
     for (int i = 0; i < 5; i++) {
@@ -133,8 +132,8 @@ public class DaosWriterTest {
       return invoc;
     }).when(daosObject).update(any(IODataDesc.class));
 
-    DaosWriter.WriteConfig writeConfig = DaosShuffleIO.loadWriteConfig(new SparkConf(false));
-    DaosWriter.WriteParam param = new DaosWriter.WriteParam();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
         .shuffleId(1)
@@ -142,8 +141,8 @@ public class DaosWriterTest {
         .config(writeConfig);
 
     BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
-        new DaosReader.ReadThreadFactory());
-    DaosWriter writer = new DaosWriter(param, daosObject, executors.nextExecutor());
+        new DaosReaderSync.ReadThreadFactory());
+    DaosWriterSync writer = new DaosWriterSync(daosObject, param, executors.nextExecutor());
     for (int i = 0; i < numPart; i++) {
       writer.write(i, new byte[100]);
       writer.flush(i);

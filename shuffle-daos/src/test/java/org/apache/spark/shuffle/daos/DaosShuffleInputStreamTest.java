@@ -175,9 +175,9 @@ public class DaosShuffleInputStreamTest {
       IODataDesc.Entry entry = desc.getEntry(0);
       String mapId = entry.getKey();
       if (maps.containsKey(mapId)) {
-//        Thread thread = maps.get(mapId);
+        // Thread thread = maps.get(mapId);
         if (callerThread != Thread.currentThread()) {
-//          wait.incrementAndGet();
+          // wait.incrementAndGet();
           // sleep to cause read timeout
           System.out.println("sleeping at " + mapId);
           Thread.sleep(waitDataTimeMs + addWaitTimeMs);
@@ -317,8 +317,8 @@ public class DaosShuffleInputStreamTest {
     Mockito.doAnswer(answer).when(daosObject).fetch(any(IODataDesc.class));
 
     BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
-        new DaosReader.ReadThreadFactory());
-    DaosReader daosReader = new DaosReader(daosObject, executors);
+        new DaosReaderSync.ReadThreadFactory());
+    DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(), executors.nextExecutor());
     LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;
@@ -355,7 +355,7 @@ public class DaosShuffleInputStreamTest {
       System.out.println("total fetch wait time: " +
               taskContext.taskMetrics().shuffleReadMetrics()._fetchWaitTime().sum());
     } finally {
-      daosReader.close();
+      daosReader.close(true);
       is.close(true);
       context.stop();
       if (executors != null) {
