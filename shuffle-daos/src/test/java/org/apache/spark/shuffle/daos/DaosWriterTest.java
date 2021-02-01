@@ -27,7 +27,12 @@ import io.daos.obj.DaosObjClient;
 import io.daos.obj.DaosObject;
 import io.daos.obj.DaosObjectId;
 import io.daos.obj.IODataDesc;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
+import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
@@ -49,6 +54,16 @@ import static org.mockito.ArgumentMatchers.any;
 @PowerMockIgnore("javax.management.*")
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
 public class DaosWriterTest {
+
+  private static SparkConf testConf = new SparkConf(false);
+
+  private static SparkContext sc;
+
+  @BeforeClass
+  public static void initialize() {
+    UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("test"));
+    sc = new SparkContext("local", "test", testConf);
+  }
 
   @Test
   public void testGetLensWithAllEmptyPartitions() {
@@ -151,5 +166,12 @@ public class DaosWriterTest {
     writer.close();
 
     executors.stop();
+  }
+
+  @AfterClass
+  public static void teardown() {
+    if (sc != null) {
+      sc.stop();
+    }
   }
 }

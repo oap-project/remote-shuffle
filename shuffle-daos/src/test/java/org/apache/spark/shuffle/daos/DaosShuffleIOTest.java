@@ -66,49 +66,53 @@ public class DaosShuffleIOTest {
     UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("test"));
     SparkContext sc = new SparkContext("local", "test", testConf);
 
-    DaosShuffleIO io = new DaosShuffleIO(testConf);
+    try {
 
-    DaosObjectId id = PowerMockito.mock(DaosObjectId.class);
-    PowerMockito.whenNew(DaosObjectId.class).withArguments(appId, Long.valueOf(shuffleId)).thenReturn(id);
-    Mockito.doNothing().when(id).encode();
-    Mockito.when(id.isEncoded()).thenReturn(true);
-    DaosObject daosObject = PowerMockito.mock(DaosObject.class);
-    DaosObjClient client = PowerMockito.mock(DaosObjClient.class);
-    Mockito.when(client.getObject(id)).thenReturn(daosObject);
+      DaosShuffleIO io = new DaosShuffleIO(testConf);
 
-    AtomicBoolean open = new AtomicBoolean(false);
-    Mockito.when(daosObject.isOpen()).then(invocationOnMock ->
-      open.get()
-    );
-    Mockito.doAnswer(invocationOnMock -> {
-      open.compareAndSet(false, true);
-      return invocationOnMock;
-    }).when(daosObject).open();
-    clientField.set(io.getIoManager(), client);
+      DaosObjectId id = PowerMockito.mock(DaosObjectId.class);
+      PowerMockito.whenNew(DaosObjectId.class).withArguments(appId, Long.valueOf(shuffleId)).thenReturn(id);
+      Mockito.doNothing().when(id).encode();
+      Mockito.when(id.isEncoded()).thenReturn(true);
+      DaosObject daosObject = PowerMockito.mock(DaosObject.class);
+      DaosObjClient client = PowerMockito.mock(DaosObjClient.class);
+      Mockito.when(client.getObject(id)).thenReturn(daosObject);
 
-    int numThreads = 50;
-    ExecutorService es = Executors.newFixedThreadPool(numThreads);
-    AtomicInteger count = new AtomicInteger(0);
+      AtomicBoolean open = new AtomicBoolean(false);
+      Mockito.when(daosObject.isOpen()).then(invocationOnMock ->
+          open.get()
+      );
+      Mockito.doAnswer(invocationOnMock -> {
+        open.compareAndSet(false, true);
+        return invocationOnMock;
+      }).when(daosObject).open();
+      clientField.set(io.getIoManager(), client);
 
-    Runnable r = () -> {
-      try {
-        DaosReader reader = io.getDaosReader(shuffleId);
-        if (reader.getObject() == daosObject && reader.getObject().isOpen()) {
-          count.incrementAndGet();
+      int numThreads = 50;
+      ExecutorService es = Executors.newFixedThreadPool(numThreads);
+      AtomicInteger count = new AtomicInteger(0);
+
+      Runnable r = () -> {
+        try {
+          DaosReader reader = io.getDaosReader(shuffleId);
+          if (reader.getObject() == daosObject && reader.getObject().isOpen()) {
+            count.incrementAndGet();
+          }
+        } catch (Exception e) {
+          e.printStackTrace();
         }
-      } catch (Exception e) {
-        e.printStackTrace();
+      };
+
+      for (int i = 0; i < numThreads; i++) {
+        es.submit(r);
       }
-    };
 
-    for (int i = 0; i < numThreads; i++) {
-      es.submit(r);
+      es.shutdown();
+      es.awaitTermination(5, TimeUnit.SECONDS);
+
+      Assert.assertEquals(50, count.intValue());
+    } finally {
+      sc.stop();
     }
-
-    es.shutdown();
-    es.awaitTermination(5, TimeUnit.SECONDS);
-
-    Assert.assertEquals(50, count.intValue());
-    sc.stop();
   }
 }

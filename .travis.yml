@@ -5,6 +5,8 @@ jdk: openjdk8
 jobs:
   include:
     - name: oap-shuffle-remote-shuffle
+      before_install:
+              - MAVEN_OPTS="-Xmx2048m"        
       install:
       - #empty install step
       script:
