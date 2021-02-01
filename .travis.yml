@@ -6,7 +6,7 @@ jobs:
   include:
     - name: oap-shuffle-remote-shuffle
       before_install:
-              - MAVEN_OPTS="-Xmx2948m"        
+      - echo "MAVEN_OPTS='-Xmx2948m'" > ~/.mavenrc        
       install:
       - #empty install step
       script:
