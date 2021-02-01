@@ -204,12 +204,12 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
   }
 
   test("test reader daos multiple times") {
-    testRead(7168, 4, false)
+    testRead(1024, 4, false)
   }
 
   test("test reader daos multiple times from other thread") {
     val executors = new BoundThreadExecutors("read_executors", 1, new DaosReaderSync.ReadThreadFactory)
-    testRead(7168, 6, false, executors)
+    testRead(1024, 6, false, executors)
     executors.stop()
   }
 }
