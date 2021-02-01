@@ -10,4 +10,4 @@ jobs:
       install:
       - #empty install step
       script:
-      - mvn clean install
+      - mvn -q clean install
