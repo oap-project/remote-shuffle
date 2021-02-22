@@ -121,6 +121,9 @@
             <plugin>
                 <groupId>org.scalatest</groupId>
                 <artifactId>scalatest-maven-plugin</artifactId>
+                <configuration>
+                    <argLine>-Xmx2048m</argLine>
+                </configuration>
                 <executions>
                     <execution>
                         <id>test</id>

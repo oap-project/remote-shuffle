@@ -42,12 +42,6 @@ package object daos {
       .stringConf
       .createWithDefault(null)
 
-  val SHUFFLE_DAOS_POOL_RANKS =
-    ConfigBuilder("spark.shuffle.daos.ranks")
-      .version("3.0.0")
-      .stringConf
-      .createWithDefault("0")
-
   val SHUFFLE_DAOS_REMOVE_SHUFFLE_DATA =
     ConfigBuilder("spark.shuffle.remove.shuffle.data")
       .doc("remove shuffle data from DAOS after shuffle completed. Default is true")
@@ -145,6 +139,15 @@ package object daos {
       .checkValue(v => v > 0,
         s"The DAOS write max bytes in flight must be positive")
       .createWithDefaultString("20480k")
+
+  val SHUFFLE_DAOS_IO_ASYNC =
+    ConfigBuilder("spark.shuffle.daos.io.async")
+      .doc("perform shuffle IO asynchronously. Default is true")
+      .version("3.0.0")
+      .booleanConf
+      .createWithDefault(true)
+
+  /* =====configs below for DAOS synchronous API===== */
 
   val SHUFFLE_DAOS_READ_THREADS =
     ConfigBuilder("spark.shuffle.daos.read.threads")
