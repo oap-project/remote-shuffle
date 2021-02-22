@@ -8,5 +8,4 @@ jobs:
       install:
       - #empty install step
       script:
-      - cd ${TRAVIS_BUILD_DIR}/oap-shuffle/remote-shuffle/
-      - mvn -q test
+      - mvn -q clean install

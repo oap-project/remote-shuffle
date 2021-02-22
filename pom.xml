@@ -259,8 +259,8 @@
     </dependencyManagement>
 
     <modules>
-        <module>shuffle-hadoop</module>
         <module>shuffle-daos</module>
+        <module>shuffle-hadoop</module>
     </modules>
 
 </project>
