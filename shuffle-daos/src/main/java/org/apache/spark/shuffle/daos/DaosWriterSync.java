@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.BufferAllocator;
 import io.daos.DaosIOException;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDesc;
@@ -49,17 +48,13 @@ import java.util.concurrent.locks.Lock;
  */
 public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
 
-  private DaosObject object;
+  protected DaosObject object;
 
-  private String mapId;
+  protected WriterConfig config;
 
-  private WriteParam param;
+  protected Map<DaosWriter, Integer> writerMap;
 
-  private WriterConfig config;
-
-  private Map<DaosWriter, Integer> writerMap;
-
-  private NativeBuffer[] partitionBufArray;
+  private InnerWriter iw;
 
   private int totalTimeoutTimes;
 
@@ -81,88 +76,37 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
    * @param executor
    * null means write in caller's thread. Submit {@link WriteTask} to it otherwise.
    */
-  public DaosWriterSync(DaosObject object, DaosWriterSync.WriteParam param,
+  public DaosWriterSync(DaosObject object, DaosWriter.WriteParam param,
                         BoundThreadExecutors.SingleThreadExecutor executor) {
     super(executor);
-    this.param = param;
-    this.config = param.config;
-    this.partitionBufArray = new NativeBuffer[param.numPartitions];
-    this.mapId = String.valueOf(param.mapId);
     this.object = object;
-  }
-
-  private NativeBuffer getNativeBuffer(int partitionId) {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      buffer = new NativeBuffer(partitionId, config.getBufferSize());
-      partitionBufArray[partitionId] = buffer;
-    }
-    return buffer;
+    this.config = param.getConfig();
+    this.iw = new InnerWriter(object, param);
   }
 
   @Override
   public void write(int partitionId, int b) {
-    getNativeBuffer(partitionId).write(b);
+    iw.write(partitionId, b);
   }
 
   @Override
   public void write(int partitionId, byte[] array) {
-    getNativeBuffer(partitionId).write(array);
+    iw.write(partitionId, array);
   }
 
   @Override
   public void write(int partitionId, byte[] array, int offset, int len) {
-    getNativeBuffer(partitionId).write(array, offset, len);
+    iw.write(partitionId, array, offset, len);
   }
 
   @Override
   public long[] getPartitionLens(int numPartitions) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("partition map size: " + partitionBufArray.length);
-      for (int i = 0; i < numPartitions; i++) {
-        NativeBuffer nb = partitionBufArray[i];
-        if (nb != null) {
-          LOG.debug("id: " + i + ", native buffer: " + nb.partitionId + ", " +
-                  nb.totalSize + ", " + nb.roundSize);
-        }
-      }
-    }
-    long[] lens = new long[numPartitions];
-    for (int i = 0; i < numPartitions; i++) {
-      NativeBuffer nb = partitionBufArray[i];
-      if (nb != null) {
-        lens[i] = nb.totalSize;
-        if (nb.roundSize != 0 || !nb.bufList.isEmpty()) {
-          throw new IllegalStateException("round size should be 0, " + nb.roundSize + ", buflist should be empty, " +
-                  nb.bufList.size());
-        }
-      } else {
-        lens[i] = 0;
-      }
-    }
-    return lens;
+    return iw.getPartitionLens(numPartitions);
   }
 
   @Override
   public void flush(int partitionId) throws IOException {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      return;
-    }
-    IODataDesc desc = buffer.createUpdateDesc();
-    if (desc == null) {
-      return;
-    }
-    totalWriteTimes++;
-    if (config.isWarnSmallWrite() && buffer.roundSize < config.getMinSize()) {
-      LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
-          buffer.roundSize, param.shuffleId, mapId, partitionId);
-    }
-    if (executor == null) { // run write by self
-      runBySelf(desc, buffer);
-      return;
-    }
-    submitToOtherThreads(desc, buffer);
+    iw.flush(partitionId);
   }
 
   private void runBySelf(IODataDesc desc, NativeBuffer buffer) throws IOException {
@@ -219,7 +163,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
 
   private void submitAndReset(IODataDesc desc, NativeBuffer buffer) {
     try {
-      submit(desc, buffer.bufList);
+      submit(desc, buffer.getBufList());
     } finally {
       buffer.reset(false);
     }
@@ -242,29 +186,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
    */
   @Override
   public void close() {
-    try {
-      close(true);
-    } catch (Exception e) {
-      throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
-    }
-  }
-
-  private void close(boolean force) throws Exception {
-    if (partitionBufArray != null) {
-      waitCompletion(force);
-      partitionBufArray = null;
-      object = null;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("total writes: " + totalWriteTimes + ", total timeout times: " + totalTimeoutTimes +
-            ", total write-by-self times: " + totalBySelfTimes + ", total timeout times/total writes: " +
-            ((float) totalTimeoutTimes) / totalWriteTimes);
-      }
-    }
-    cleanup(force);
-    if (writerMap != null && (force || cleaned)) {
-      writerMap.remove(this);
-      writerMap = null;
-    }
+    iw.close();
   }
 
   private void waitCompletion(boolean force) throws Exception {
@@ -315,131 +237,58 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     return true;
   }
 
-  /**
-   * Write data to one or multiple netty direct buffers which will be written to DAOS without copy
-   */
-  private class NativeBuffer implements Comparable<NativeBuffer> {
-    private int partitionId;
-    private String partitionIdKey;
-    private int bufferSize;
-    private int idx = -1;
-    private List<ByteBuf> bufList = new ArrayList<>();
-    private long totalSize;
-    private long roundSize;
-
-    NativeBuffer(int partitionId, int bufferSize) {
-      this.partitionId = partitionId;
-      this.partitionIdKey = String.valueOf(partitionId);
-      this.bufferSize = bufferSize;
-    }
-
-    private ByteBuf addNewByteBuf(int len) {
-      ByteBuf buf;
-      try {
-        buf = BufferAllocator.objBufWithNativeOrder(Math.max(bufferSize, len));
-      } catch (OutOfMemoryError e) {
-        LOG.error("too big buffer size: " + Math.max(bufferSize, len));
-        throw e;
-      }
-      bufList.add(buf);
-      idx++;
-      return buf;
-    }
-
-    private ByteBuf getBuffer(int len) {
-      if (idx < 0) {
-        return addNewByteBuf(len);
-      }
-      return bufList.get(idx);
-    }
-
-    public void write(int b) {
-      ByteBuf buf = getBuffer(1);
-      if (buf.writableBytes() < 1) {
-        buf = addNewByteBuf(1);
-      }
-      buf.writeByte(b);
-      roundSize += 1;
-    }
-
-    public void write(byte[] b) {
-      write(b, 0, b.length);
-    }
-
-    public void write(byte[] b, int offset, int len) {
-      if (len <= 0) {
-        return;
-      }
-      ByteBuf buf = getBuffer(len);
-      int avail = buf.writableBytes();
-      int gap = len - avail;
-      if (gap <= 0) {
-        buf.writeBytes(b, offset, len);
-      } else {
-        buf.writeBytes(b, offset, avail);
-        buf = addNewByteBuf(gap);
-        buf.writeBytes(b, avail, gap);
-      }
-      roundSize += len;
-    }
-
-    public IODataDesc createUpdateDesc() throws IOException {
-      if (roundSize == 0 || bufList.isEmpty()) {
-        return null;
-      }
-      long bufSize = 0;
-      IODataDesc desc = object.createDataDescForUpdate(partitionIdKey, IODataDesc.IodType.ARRAY, 1);
-      for (ByteBuf buf : bufList) {
-        desc.addEntryForUpdate(mapId, (int) totalSize, buf);
-        bufSize += buf.readableBytes();
-      }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
-      return desc;
-    }
-
-    public void reset(boolean release) {
-      if (release) {
-        bufList.forEach(b -> b.release());
-      }
-      // release==false, buffers will be released when tasks are executed and consumed
-      bufList.clear();
-      idx = -1;
-      totalSize += roundSize;
-      roundSize = 0;
+  private final class InnerWriter extends DaosWriterBase {
+    public InnerWriter(DaosObject object, DaosWriter.WriteParam param) {
+      super(object, param);
     }
 
     @Override
-    public int compareTo(NativeBuffer nativeBuffer) {
-      return partitionId - nativeBuffer.partitionId;
-    }
-  }
-
-  public static class WriteParam {
-    private int numPartitions;
-    private int shuffleId;
-    private long mapId;
-    private DaosWriter.WriterConfig config;
-
-    public WriteParam numPartitions(int numPartitions) {
-      this.numPartitions = numPartitions;
-      return this;
-    }
-
-    public WriteParam shuffleId(int shuffleId) {
-      this.shuffleId = shuffleId;
-      return this;
-    }
-
-    public WriteParam mapId(long mapId) {
-      this.mapId = mapId;
-      return this;
+    public void flush(int partitionId) throws IOException {
+      NativeBuffer buffer = partitionBufArray[partitionId];
+      if (buffer == null) {
+        return;
+      }
+      IODataDesc desc = buffer.createUpdateDesc();
+      if (desc == null) {
+        return;
+      }
+      totalWriteTimes++;
+      if (config.isWarnSmallWrite() && buffer.getRoundSize() < config.getMinSize()) {
+        LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
+            buffer.getRoundSize(), param.getShuffleId(), mapId, partitionId);
+      }
+      if (executor == null) { // run write by self
+        runBySelf(desc, buffer);
+        return;
+      }
+      submitToOtherThreads(desc, buffer);
     }
 
-    public WriteParam config(DaosWriter.WriterConfig config) {
-      this.config = config;
-      return this;
+    @Override
+    public void close() {
+      try {
+        close(true);
+      } catch (Exception e) {
+        throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
+      }
+    }
+
+    private void close(boolean force) throws Exception {
+      if (partitionBufArray != null) {
+        waitCompletion(force);
+        partitionBufArray = null;
+        object = null;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("total writes: " + totalWriteTimes + ", total timeout times: " + totalTimeoutTimes +
+              ", total write-by-self times: " + totalBySelfTimes + ", total timeout times/total writes: " +
+              ((float) totalTimeoutTimes) / totalWriteTimes);
+        }
+      }
+      cleanup(force);
+      if (writerMap != null && (force || cleaned)) {
+        writerMap.remove(this);
+        writerMap = null;
+      }
     }
   }
 

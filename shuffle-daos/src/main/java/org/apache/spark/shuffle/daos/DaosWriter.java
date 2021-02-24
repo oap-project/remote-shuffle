@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,12 +23,19 @@
 
 package org.apache.spark.shuffle.daos;
 
+import io.daos.BufferAllocator;
+import io.daos.obj.DaosObject;
+import io.daos.obj.IODataDesc;
+import io.daos.obj.IODataDescAsync;
+import io.netty.buffer.ByteBuf;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkEnv;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A DAOS writer per map task which may have multiple map output partitions.
@@ -85,6 +92,183 @@ public interface DaosWriter {
    * close writer.
    */
   void close();
+
+  /**
+   * Write parameters, including mapId, shuffleId, number of partitions and write config.
+   */
+  class WriteParam {
+    private int numPartitions;
+    private int shuffleId;
+    private long mapId;
+    private DaosWriter.WriterConfig config;
+
+    public WriteParam numPartitions(int numPartitions) {
+      this.numPartitions = numPartitions;
+      return this;
+    }
+
+    public WriteParam shuffleId(int shuffleId) {
+      this.shuffleId = shuffleId;
+      return this;
+    }
+
+    public WriteParam mapId(long mapId) {
+      this.mapId = mapId;
+      return this;
+    }
+
+    public WriteParam config(DaosWriter.WriterConfig config) {
+      this.config = config;
+      return this;
+    }
+
+    public int getNumPartitions() {
+      return numPartitions;
+    }
+
+    public int getShuffleId() {
+      return shuffleId;
+    }
+
+    public long getMapId() {
+      return mapId;
+    }
+
+    public WriterConfig getConfig() {
+      return config;
+    }
+  }
+
+  /**
+   * Write data to one or multiple netty direct buffers which will be written to DAOS without copy
+   */
+  class NativeBuffer implements Comparable<NativeBuffer> {
+    private String mapId;
+    private int partitionId;
+    private String partitionIdKey;
+    private int bufferSize;
+    private int idx = -1;
+    private List<ByteBuf> bufList = new ArrayList<>();
+    private long totalSize;
+    private long roundSize;
+
+    private DaosObject object;
+
+    private static final Logger LOG = LoggerFactory.getLogger(NativeBuffer.class);
+
+    NativeBuffer(DaosObject object, String mapId, int partitionId, int bufferSize) {
+      this.object = object;
+      this.mapId = mapId;
+      this.partitionId = partitionId;
+      this.partitionIdKey = String.valueOf(partitionId);
+      this.bufferSize = bufferSize;
+    }
+
+    private ByteBuf addNewByteBuf(int len) {
+      ByteBuf buf;
+      try {
+        buf = BufferAllocator.objBufWithNativeOrder(Math.max(bufferSize, len));
+      } catch (OutOfMemoryError e) {
+        LOG.error("too big buffer size: " + Math.max(bufferSize, len));
+        throw e;
+      }
+      bufList.add(buf);
+      idx++;
+      return buf;
+    }
+
+    private ByteBuf getBuffer(int len) {
+      if (idx < 0) {
+        return addNewByteBuf(len);
+      }
+      return bufList.get(idx);
+    }
+
+    public void write(int b) {
+      ByteBuf buf = getBuffer(1);
+      if (buf.writableBytes() < 1) {
+        buf = addNewByteBuf(1);
+      }
+      buf.writeByte(b);
+      roundSize += 1;
+    }
+
+    public void write(byte[] b) {
+      write(b, 0, b.length);
+    }
+
+    public void write(byte[] b, int offset, int len) {
+      if (len <= 0) {
+        return;
+      }
+      ByteBuf buf = getBuffer(len);
+      int avail = buf.writableBytes();
+      int gap = len - avail;
+      if (gap <= 0) {
+        buf.writeBytes(b, offset, len);
+      } else {
+        buf.writeBytes(b, offset, avail);
+        buf = addNewByteBuf(gap);
+        buf.writeBytes(b, avail, gap);
+      }
+      roundSize += len;
+    }
+
+    public IODataDesc createUpdateDesc() throws IOException {
+      if (roundSize == 0 || bufList.isEmpty()) {
+        return null;
+      }
+      long bufSize = 0;
+      IODataDesc desc = object.createDataDescForUpdate(partitionIdKey, IODataDesc.IodType.ARRAY, 1);
+      for (ByteBuf buf : bufList) {
+        desc.addEntryForUpdate(mapId, (int) totalSize, buf);
+        bufSize += buf.readableBytes();
+      }
+      if (roundSize != bufSize) {
+        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
+      }
+      return desc;
+    }
+
+    public IODataDescAsync createUpdateDescAsync() {
+      if (roundSize == 0 || bufList.isEmpty()) {
+        return null;
+      }
+      return null;
+    }
+
+    public void reset(boolean release) {
+      if (release) {
+        bufList.forEach(b -> b.release());
+      }
+      // release==false, buffers will be released when tasks are executed and consumed
+      bufList.clear();
+      idx = -1;
+      totalSize += roundSize;
+      roundSize = 0;
+    }
+
+    @Override
+    public int compareTo(NativeBuffer nativeBuffer) {
+      return partitionId - nativeBuffer.partitionId;
+    }
+
+    public int getPartitionId() {
+      return partitionId;
+    }
+
+    public long getTotalSize() {
+      return totalSize;
+    }
+
+    public long getRoundSize() {
+      return roundSize;
+    }
+
+    public List<ByteBuf> getBufList() {
+      return bufList;
+    }
+  }
 
   /**
    * Write configurations. Please check configs prefixed with SHUFFLE_DAOS_WRITE in {@link package$#MODULE$}.
