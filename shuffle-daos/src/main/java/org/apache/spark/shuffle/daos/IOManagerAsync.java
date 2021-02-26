@@ -30,12 +30,17 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class IOManagerAsync extends IOManager {
 
   private DaosReader.ReaderConfig readerConfig;
 
   private DaosWriter.WriterConfig writerConfig;
+
+  private Map<DaosReader, Integer> readerMap = new ConcurrentHashMap<>();
+
+  private Map<DaosWriter, Integer> writerMap = new ConcurrentHashMap<>();
 
   private static final Logger logger = LoggerFactory.getLogger(IOManagerAsync.class);
 
@@ -58,16 +63,28 @@ public class IOManagerAsync extends IOManager {
         .shuffleId(shuffleId)
         .mapId(mapId)
         .config(writerConfig);
-    return new DaosWriterAsync(getObject(appId, shuffleId), param);
+    DaosWriterAsync writer = new DaosWriterAsync(getObject(appId, shuffleId), param);
+    writer.setWriterMap(writerMap);
+    return writer;
   }
 
   @Override
   DaosReader getDaosReader(int shuffleId) throws IOException {
+    long appId = parseAppId(conf.getAppId());
+    if (logger.isDebugEnabled()) {
+      logger.debug("getting daosreader for app id: " + appId + ", shuffle id: " + shuffleId);
+    }
+    DaosReaderAsync reader = new DaosReaderAsync();
+    reader.setReaderMap(readerMap);
     return null;
   }
 
   @Override
   void close() throws IOException {
-
+    readerMap.keySet().forEach(r -> r.close(true));
+    readerMap.clear();
+    writerMap.keySet().forEach(r -> r.close());
+    writerMap.clear();
+    objClient.forceClose();
   }
 }

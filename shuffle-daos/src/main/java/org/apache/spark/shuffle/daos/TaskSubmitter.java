@@ -23,7 +23,7 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.obj.IODataDesc;
+import io.daos.obj.IODataDescSync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,7 +70,7 @@ public abstract class TaskSubmitter {
    * @param morePara
    * additional parameter
    */
-  protected void submit(IODataDesc taskDesc, Object morePara) {
+  protected void submit(IODataDescSync taskDesc, Object morePara) {
     LinkedTaskContext context = tryReuseContext(taskDesc, morePara);
     executor.execute(newTask(context));
     totalInMemSize += taskDesc.getTotalRequestSize();
@@ -107,7 +107,7 @@ public abstract class TaskSubmitter {
    * additional parameter to override old desc in reused task context
    * @return reused linked task context
    */
-  protected LinkedTaskContext tryReuseContext(IODataDesc desc, Object morePara) {
+  protected LinkedTaskContext tryReuseContext(IODataDescSync desc, Object morePara) {
     LinkedTaskContext context = consumedStack.poll();
     if (context != null) {
       context.reuse(desc, morePara);
@@ -133,7 +133,7 @@ public abstract class TaskSubmitter {
    * additional parameter
    * @return Linked task context
    */
-  protected abstract LinkedTaskContext createTaskContext(IODataDesc desc, Object morePara);
+  protected abstract LinkedTaskContext createTaskContext(IODataDescSync desc, Object morePara);
 
   /**
    * move forward by checking if there is any returned task available.
@@ -282,7 +282,7 @@ public abstract class TaskSubmitter {
     if (ctx == null) {
       return true;
     }
-    IODataDesc desc = ctx.getDesc();
+    IODataDescSync desc = ctx.getDesc();
     if (desc != null && (force || desc.isSucceeded())) {
       desc.release();
       return true;

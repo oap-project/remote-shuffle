@@ -26,6 +26,7 @@ package org.apache.spark.shuffle.daos;
 import io.daos.DaosIOException;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDesc;
+import io.daos.obj.IODataDescSync;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.ObjectPool;
 import org.slf4j.Logger;
@@ -109,7 +110,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     iw.flush(partitionId);
   }
 
-  private void runBySelf(IODataDesc desc, NativeBuffer buffer) throws IOException {
+  private void runBySelf(IODataDescSync desc, NativeBuffer buffer) throws IOException {
     totalBySelfTimes++;
     try {
       object.update(desc);
@@ -121,7 +122,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
   }
 
-  private void submitToOtherThreads(IODataDesc desc, NativeBuffer buffer) throws IOException {
+  private void submitToOtherThreads(IODataDescSync desc, NativeBuffer buffer) throws IOException {
     // move forward to release write buffers
     moveForward();
     // check if we need to wait submitted tasks to be executed
@@ -161,7 +162,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     return totalInMemSize < config.getTotalInMemSize() && totalSubmitted < config.getTotalSubmittedLimit();
   }
 
-  private void submitAndReset(IODataDesc desc, NativeBuffer buffer) {
+  private void submitAndReset(IODataDescSync desc, NativeBuffer buffer) {
     try {
       submit(desc, buffer.getBufList());
     } finally {
@@ -215,7 +216,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   @Override
-  protected LinkedTaskContext createTaskContext(IODataDesc desc, Object morePara) {
+  protected LinkedTaskContext createTaskContext(IODataDescSync desc, Object morePara) {
     return new WriteTaskContext(object, counter, lock, condition, desc, morePara);
   }
 
@@ -248,7 +249,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       if (buffer == null) {
         return;
       }
-      IODataDesc desc = buffer.createUpdateDesc();
+      IODataDescSync desc = buffer.createUpdateDesc();
       if (desc == null) {
         return;
       }
@@ -356,7 +357,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
      * list of buffers to write to DAOS
      */
     WriteTaskContext(DaosObject object, AtomicInteger counter, Lock writeLock, Condition notFull,
-                            IODataDesc desc, Object bufList) {
+                            IODataDescSync desc, Object bufList) {
       super(object, counter, writeLock, notFull);
       this.desc = desc;
       @SuppressWarnings("unchecked")
@@ -373,7 +374,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
 
     @Override
-    public void reuse(IODataDesc desc, Object morePara) {
+    public void reuse(IODataDescSync desc, Object morePara) {
       @SuppressWarnings("unchecked")
       List<ByteBuf> myBufList = (List<ByteBuf>) this.morePara;
       if (!myBufList.isEmpty()) {

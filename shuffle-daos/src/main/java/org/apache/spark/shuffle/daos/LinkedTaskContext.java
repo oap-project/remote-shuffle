@@ -24,7 +24,7 @@
 package org.apache.spark.shuffle.daos;
 
 import io.daos.obj.DaosObject;
-import io.daos.obj.IODataDesc;
+import io.daos.obj.IODataDescSync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +44,7 @@ public abstract class LinkedTaskContext {
   protected final Lock lock;
   protected final Condition condition;
 
-  protected IODataDesc desc;
+  protected IODataDescSync desc;
   protected LinkedTaskContext next;
 
   protected volatile boolean cancelled; // for multi-thread
@@ -81,7 +81,7 @@ public abstract class LinkedTaskContext {
    * @param morePara
    * additional data
    */
-  protected void reuse(IODataDesc desc, Object morePara) {
+  protected void reuse(IODataDescSync desc, Object morePara) {
     this.desc = desc;
     this.next = null;
     this.morePara = morePara;
@@ -102,7 +102,7 @@ public abstract class LinkedTaskContext {
     return next;
   }
 
-  protected IODataDesc getDesc() {
+  protected IODataDescSync getDesc() {
     return desc;
   }
 

@@ -25,8 +25,8 @@ package org.apache.spark.shuffle.daos;
 
 import io.daos.BufferAllocator;
 import io.daos.obj.DaosObject;
-import io.daos.obj.IODataDesc;
-import io.daos.obj.IODataDescAsync;
+import io.daos.obj.IODataDescSync;
+import io.daos.obj.IOSimpleDDAsync;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkEnv;
@@ -214,14 +214,14 @@ public interface DaosWriter {
       roundSize += len;
     }
 
-    public IODataDesc createUpdateDesc() throws IOException {
+    public IODataDescSync createUpdateDesc() throws IOException {
       if (roundSize == 0 || bufList.isEmpty()) {
         return null;
       }
       long bufSize = 0;
-      IODataDesc desc = object.createDataDescForUpdate(partitionIdKey, IODataDesc.IodType.ARRAY, 1);
+      IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
       for (ByteBuf buf : bufList) {
-        desc.addEntryForUpdate(mapId, (int) totalSize, buf);
+        desc.addEntryForUpdate(mapId, totalSize, buf);
         bufSize += buf.readableBytes();
       }
       if (roundSize != bufSize) {
@@ -230,11 +230,20 @@ public interface DaosWriter {
       return desc;
     }
 
-    public IODataDescAsync createUpdateDescAsync() {
+    public IOSimpleDDAsync createUpdateDescAsync(long eqHandle) throws IOException {
       if (roundSize == 0 || bufList.isEmpty()) {
         return null;
       }
-      return null;
+      long bufSize = 0;
+      IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
+      for (ByteBuf buf : bufList) {
+        desc.addEntryForUpdate(mapId, totalSize, buf);
+        bufSize += buf.readableBytes();
+      }
+      if (roundSize != bufSize) {
+        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
+      }
+      return desc;
     }
 
     public void reset(boolean release) {

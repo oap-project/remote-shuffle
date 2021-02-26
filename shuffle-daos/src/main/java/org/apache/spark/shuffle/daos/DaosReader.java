@@ -85,6 +85,11 @@ public interface DaosReader {
   Tuple2<Long, Integer> curMapReduceId();
 
   /**
+   * find next mapReduce Id
+   */
+  void nextMapReduceId();
+
+  /**
    * get available buffer after iterating current buffer, next buffer in current desc and next desc.
    *
    * @return buffer with data read from DAOS

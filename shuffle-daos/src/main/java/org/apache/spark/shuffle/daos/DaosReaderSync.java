@@ -24,7 +24,8 @@
 package org.apache.spark.shuffle.daos;
 
 import io.daos.obj.DaosObject;
-import io.daos.obj.IODataDesc;
+import io.daos.obj.IODataDescBase;
+import io.daos.obj.IODataDescSync;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.ObjectPool;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
@@ -36,7 +37,6 @@ import scala.Tuple2;
 import scala.Tuple3;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -46,7 +46,7 @@ import java.util.concurrent.locks.Lock;
 
 /**
  * A class with {@link DaosObject} wrapped to read data from DAOS in either caller's thread or
- * dedicated executor thread. The actual read is performed by {@link DaosObject#fetch(IODataDesc)}.
+ * dedicated executor thread. The actual read is performed by {@link DaosObject#fetch(IODataDescSync)}.
  *
  * User just calls {@link #nextBuf()} and reads from buffer repeatedly until no buffer returned.
  * Reader determines when and how (caller thread or from dedicated thread) based on config, to read from DAOS
@@ -55,36 +55,11 @@ import java.util.concurrent.locks.Lock;
  */
 public class DaosReaderSync extends TaskSubmitter implements DaosReader {
 
-  private DaosObject object;
-
-  private Map<DaosReader, Integer> readerMap;
-
-  private ReaderConfig config;
-
-  protected LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
-
-  private Iterator<Tuple2<Long, Integer>> mapIdIt;
-
-  private ShuffleReadMetricsReporter metrics;
-
-  protected long currentPartSize;
-
-  protected Tuple2<Long, Integer> curMapReduceId;
-  protected Tuple2<Long, Integer> lastMapReduceIdForSubmit;
-  protected Tuple2<Long, Integer> lastMapReduceIdForReturn;
-  protected int curOffset;
-  protected boolean nextMap;
-
-  protected int totalParts;
-  protected int partsRead;
+  private InnerReader reader;
 
   private ReadTaskContext selfCurrentCtx;
-  private IODataDesc currentDesc;
-  private IODataDesc.Entry currentEntry;
 
   private boolean fromOtherThread;
-
-  private int entryIdx;
 
   private static Logger logger = LoggerFactory.getLogger(DaosReader.class);
 
@@ -100,8 +75,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
    */
   public DaosReaderSync(DaosObject object, ReaderConfig config, BoundThreadExecutors.SingleThreadExecutor executor) {
     super(executor);
-    this.object = object;
-    this.config = config;
+    reader = new InnerReader(object, config);
     this.fromOtherThread = config.isFromOtherThread();
     if (fromOtherThread && executor == null) {
       throw new IllegalArgumentException("executor should not be null if read from other thread");
@@ -110,7 +84,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
 
   @Override
   public DaosObject getObject() {
-    return object;
+    return reader.object;
   }
 
   @Override
@@ -119,39 +93,17 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
     allReleased &= cleanupSubmitted(force);
     allReleased &= cleanupConsumed(force);
     if (allReleased) {
-      if (readerMap != null) {
-        readerMap.remove(this);
-        readerMap = null;
-      }
+      reader.close(force);
     }
   }
 
   @Override
   public void setReaderMap(Map<DaosReader, Integer> readerMap) {
-    readerMap.put(this, 0);
-    this.readerMap = readerMap;
+    reader.setReaderMap(readerMap);
   }
 
   public boolean hasExecutors() {
     return executor != null;
-  }
-
-  /**
-   * invoke this method when fromOtherThread is false.
-   *
-   * @return
-   * @throws {@link IOException}
-   */
-  public ByteBuf readBySelf() throws IOException {
-    if (lastCtx != null) { // duplicated IODataDescs which were submitted to other thread, but cancelled
-      ByteBuf buf = readDuplicated(false);
-      if (buf != null) {
-        return buf;
-      }
-    }
-    // all submitted were duplicated. Now start from mapId iterator.
-    IODataDesc desc = createNextDesc(config.getMaxBytesInFlight());
-    return getBySelf(desc, lastMapReduceIdForSubmit);
   }
 
   /**
@@ -160,325 +112,46 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
    * @return buffer with data read from DAOS
    * @throws IOException
    */
+  @Override
   public ByteBuf nextBuf() throws IOException {
-    ByteBuf buf = tryCurrentEntry();
-    if (buf != null) {
-      return buf;
-    }
-    // next entry
-    buf = tryCurrentDesc();
-    if (buf != null) {
-      return buf;
-    }
-    // from next partition
-    if (fromOtherThread) {
-      // next ready queue
-      if (headCtx != null) {
-        return tryNextTaskContext();
-      }
-      // get data by self and submit request for remaining data
-      return getBySelfAndSubmitMore(config.getMinReadSize());
-    }
-    // get data by self after fromOtherThread disabled
-    return readBySelf();
+    return reader.nextBuf();
   }
 
   @Override
   public boolean isNextMap() {
-    return nextMap;
+    return reader.isNextMap();
   }
 
   @Override
   public void setNextMap(boolean nextMap) {
-    this.nextMap = nextMap;
+    reader.setNextMap(nextMap);
   }
 
-  private ByteBuf tryNextTaskContext() throws IOException {
-    // make sure there are still some read tasks waiting/running/returned from other threads
-    // or they are readDuplicated by self
-    if (totalSubmitted == 0 || selfCurrentCtx == lastCtx) {
-      return getBySelfAndSubmitMore(config.getMaxBytesInFlight());
-    }
-    if (totalSubmitted < 0) {
-      throw new IllegalStateException("total submitted should be no less than 0. " + totalSubmitted);
-    }
-    try {
-      IODataDesc desc;
-      if ((desc = tryGetFromOtherThread()) != null) {
-        submitMore();
-        return validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
-      }
-      // duplicate and get data by self
-      return readDuplicated(true);
-    } catch (InterruptedException e) {
-      throw new IOException("read interrupted.", e);
-    }
-  }
-
-  /**
-   * we have to duplicate submitted desc since mapId was moved.
-   *
-   * @return
-   * @throws IOException
-   */
-  private ByteBuf readDuplicated(boolean expectNotNullCtx) throws IOException {
-    ReadTaskContext context = getNextNonReturnedCtx();
-    if (context == null) {
-      if (expectNotNullCtx) {
-        throw new IllegalStateException("context should not be null. totalSubmitted: " + totalSubmitted);
-      }
-      if (!fromOtherThread) {
-        lastCtx = null;
-      }
-      return null;
-    }
-    IODataDesc newDesc = context.getDesc().duplicate();
-    ByteBuf buf = getBySelf(newDesc, context.getMapReduceId());
-    selfCurrentCtx = context;
-    return buf;
-  }
-
-  private IODataDesc tryGetFromOtherThread() throws InterruptedException, IOException {
-    IODataDesc desc = tryGetValidCompleted();
-    if (desc != null) {
-      return desc;
-    }
-    // check completion
-    if ((!mapIdIt.hasNext()) && curMapReduceId == null && totalSubmitted == 0) {
-      return null;
-    }
-    // wait for specified time
-    desc = waitForValidFromOtherThread();
-    if (desc != null) {
-      return desc;
-    }
-    // check wait times and cancel task
-    // TODO: stop reading from other threads?
-    cancelTasks(false);
-    return null;
-  }
-
-  private IODataDesc waitForValidFromOtherThread() throws InterruptedException, IOException {
-    IODataDesc desc;
-    while (true) {
-      long start = System.nanoTime();
-      boolean timeout = waitForCondition(config.getWaitDataTimeMs());
-      metrics.incFetchWaitTime(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
-      if (timeout) {
-        exceedWaitTimes++;
-        if (logger.isDebugEnabled()) {
-          logger.debug("exceed wait: {}ms, times: {}", config.getWaitDataTimeMs(), exceedWaitTimes);
-        }
-        if (exceedWaitTimes >= config.getWaitTimeoutTimes()) {
-          return null;
-        }
-      }
-      // get some results after wait
-      desc = tryGetValidCompleted();
-      if (desc != null) {
-        return desc;
-      }
-    }
-  }
-
-  protected IODataDesc tryGetValidCompleted() throws IOException {
-    if (moveForward()) {
-      return currentDesc;
-    }
-    return null;
-  }
-
-  private ByteBuf tryCurrentDesc() throws IOException {
-    if (currentDesc != null) {
-      ByteBuf buf;
-      while (entryIdx < currentDesc.getNbrOfEntries()) {
-        IODataDesc.Entry entry = currentDesc.getEntry(entryIdx);
-        buf = validateLastEntryAndGetBuf(entry);
-        if (buf.readableBytes() > 0) {
-          return buf;
-        }
-        entryIdx++;
-      }
-      entryIdx = 0;
-      // no need to release desc since all its entries are released in tryCurrentEntry and
-      // internal buffers are released after object.fetch
-      // reader.close will release all in case of failure
-      currentDesc = null;
-    }
-    return null;
-  }
-
-  private ByteBuf tryCurrentEntry() {
-    if (currentEntry != null && !currentEntry.isFetchBufReleased()) {
-      ByteBuf buf = currentEntry.getFetchedData();
-      if (buf.readableBytes() > 0) {
-        return buf;
-      }
-      // release buffer as soon as possible
-      currentEntry.releaseDataBuffer();
-      entryIdx++;
-    }
-    // not null currentEntry since it will be used for size validation
-    return null;
-  }
-
-  /**
-   * for first read.
-   *
-   * @param selfReadLimit
-   * @return
-   * @throws IOException
-   */
-  private ByteBuf getBySelfAndSubmitMore(long selfReadLimit) throws IOException {
-    entryIdx = 0;
-    // fetch the next by self
-    IODataDesc desc = createNextDesc(selfReadLimit);
-    Tuple2<Long, Integer> mapreduceId = lastMapReduceIdForSubmit;
-    try {
-      if (fromOtherThread) {
-        submitMore();
-      }
-    } catch (Exception e) {
-      desc.release();
-      if (e instanceof IOException) {
-        throw (IOException)e;
-      }
-      throw new IOException("failed to submit more", e);
-    }
-    // first time read from reduce task
-    return getBySelf(desc, mapreduceId);
-  }
-
-  private void submitMore() throws IOException {
-    while (totalSubmitted < config.getReadBatchSize() && totalInMemSize < config.getMaxMem()) {
-      IODataDesc taskDesc = createNextDesc(config.getMaxBytesInFlight());
-      if (taskDesc == null) {
-        break;
-      }
-      submit(taskDesc, lastMapReduceIdForSubmit);
-    }
-  }
-
-  private ByteBuf getBySelf(IODataDesc desc, Tuple2<Long, Integer> mapreduceId) throws IOException {
-    // get data by self, no need to release currentDesc
-    if (desc == null) { // reach end
-      return null;
-    }
-    boolean releaseBuf = false;
-    try {
-      object.fetch(desc);
-      currentDesc = desc;
-      ByteBuf buf = validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
-      lastMapReduceIdForReturn = mapreduceId;
-      return buf;
-    } catch (IOException | IllegalStateException e) {
-      releaseBuf = true;
-      throw e;
-    } finally {
-      desc.release(releaseBuf);
-    }
-  }
-
-  private IODataDesc createNextDesc(long sizeLimit) throws IOException {
-    long remaining = sizeLimit;
-    int reduceId = -1;
-    long mapId;
-    IODataDesc desc = null;
-    while (remaining > 0) {
-      nextMapReduceId();
-      if (curMapReduceId == null) {
-        break;
-      }
-      if (reduceId > 0 && curMapReduceId._2 != reduceId) { // make sure entries under same reduce
-        break;
-      }
-      reduceId = curMapReduceId._2;
-      mapId = curMapReduceId._1;
-      lastMapReduceIdForSubmit = curMapReduceId;
-      long readSize = partSizeMap.get(curMapReduceId)._1() - curOffset;
-      long offset = curOffset;
-      if (readSize > remaining) {
-        readSize = remaining;
-        curOffset += readSize;
-      } else {
-        curOffset = 0;
-        curMapReduceId = null;
-      }
-      if (desc == null) {
-        desc = object.createDataDescForFetch(String.valueOf(reduceId), IODataDesc.IodType.ARRAY, 1);
-      }
-      desc.addEntryForFetch(String.valueOf(mapId), (int)offset, (int)readSize);
-      remaining -= readSize;
-    }
-    return desc;
-  }
-
-  private void nextMapReduceId() {
-    if (curMapReduceId != null) {
-      return;
-    }
-    curOffset = 0;
-    if (mapIdIt.hasNext()) {
-      curMapReduceId = mapIdIt.next();
-      partsRead++;
-    } else {
-      curMapReduceId = null;
-    }
-  }
-
-  private ByteBuf validateLastEntryAndGetBuf(IODataDesc.Entry entry) throws IOException {
-    ByteBuf buf = entry.getFetchedData();
-    int byteLen = buf.readableBytes();
-    nextMap = false;
-    if (currentEntry != null && entry != currentEntry) {
-      if (entry.getKey().equals(currentEntry.getKey())) {
-        currentPartSize += byteLen;
-      } else {
-        checkPartitionSize();
-        nextMap = true;
-        currentPartSize = byteLen;
-      }
-    }
-    currentEntry = entry;
-    metrics.incRemoteBytesRead(byteLen);
-    return buf;
+  @Override
+  public void nextMapReduceId() {
+    reader.nextMapReduceId();
   }
 
   @Override
   public void checkPartitionSize() throws IOException {
-    if (lastMapReduceIdForReturn == null) {
-      return;
-    }
-    // partition size is not accurate after compress/decompress
-    long size = partSizeMap.get(lastMapReduceIdForReturn)._1();
-    if (size < 35 * 1024 * 1024 * 1024 && currentPartSize * 1.1 < size) {
-      throw new IOException("expect partition size " + partSizeMap.get(lastMapReduceIdForReturn) +
-          ", actual size " + currentPartSize + ", mapId and reduceId: " + lastMapReduceIdForReturn);
-    }
-    metrics.incRemoteBlocksFetched(1);
+    reader.checkPartitionSize();
   }
 
   @Override
   public void checkTotalPartitions() throws IOException {
-    if (partsRead != totalParts) {
-      throw new IOException("expect total partitions to be read: " + totalParts + ", actual read: " + partsRead);
-    }
+    reader.checkTotalPartitions();
   }
 
   @Override
   public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap,
                      long maxBytesInFlight, long maxReqSizeShuffleToMem,
                      ShuffleReadMetricsReporter metrics) {
-    this.partSizeMap = partSizeMap;
-    this.config = config.copy(maxBytesInFlight, maxReqSizeShuffleToMem);
-    this.metrics = metrics;
-    this.totalParts = partSizeMap.size();
-    mapIdIt = partSizeMap.keySet().iterator();
+    reader.prepare(partSizeMap, maxBytesInFlight, maxReqSizeShuffleToMem, metrics);
   }
 
   @Override
   public Tuple2<Long, Integer> curMapReduceId() {
-    return lastMapReduceIdForSubmit;
+    return reader.lastMapReduceIdForSubmit;
   }
 
   @Override
@@ -506,8 +179,8 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
       return false;
     }
     selfCurrentCtx = null; // non-cancelled currentCtx overrides selfCurrentCtx
-    lastMapReduceIdForReturn = ((ReadTaskContext)context).getMapReduceId();
-    IODataDesc desc = context.getDesc();
+    reader.lastMapReduceIdForReturn = ((ReadTaskContext)context).getMapReduceId();
+    IODataDescSync desc = context.getDesc();
     if (!desc.isSucceeded()) {
       String msg = "failed to get data from DAOS, desc: " + desc.toString(4096);
       if (desc.getCause() != null) {
@@ -516,7 +189,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
         throw new IllegalStateException(msg + "\nno exception got. logic error or crash?");
       }
     }
-    currentDesc = desc;
+    reader.currentDesc = desc;
     return true;
   }
 
@@ -526,8 +199,8 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
   }
 
   @Override
-  protected LinkedTaskContext createTaskContext(IODataDesc desc, Object morePara) {
-    return new ReadTaskContext(object, counter, lock, condition, desc, morePara);
+  protected LinkedTaskContext createTaskContext(IODataDescSync desc, Object morePara) {
+    return new ReadTaskContext(reader.object, counter, lock, condition, desc, morePara);
   }
 
   @Override
@@ -548,8 +221,221 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
   @Override
   public String toString() {
     return "DaosReaderSync{" +
-        "object=" + object +
+        "object=" + reader.object +
         '}';
+  }
+
+  private class InnerReader extends DaosReaderBase {
+    public InnerReader(DaosObject object, ReaderConfig config) {
+      super(object, config);
+    }
+
+    @Override
+    public ByteBuf nextBuf() throws IOException {
+      ByteBuf buf = tryCurrentEntry();
+      if (buf != null) {
+        return buf;
+      }
+      // next entry
+      buf = tryCurrentDesc();
+      if (buf != null) {
+        return buf;
+      }
+      // from next partition
+      if (fromOtherThread) {
+        // next ready queue
+        if (headCtx != null) {
+          return tryNextTaskContext();
+        }
+        // get data by self and submit request for remaining data
+        return getBySelfAndSubmitMore(reader.config.getMinReadSize());
+      }
+      // get data by self after fromOtherThread disabled
+      return readBySelf();
+    }
+
+    /**
+     * invoke this method when fromOtherThread is false.
+     *
+     * @return
+     * @throws {@link IOException}
+     */
+    public ByteBuf readBySelf() throws IOException {
+      if (lastCtx != null) { // duplicated IODataDescs which were submitted to other thread, but cancelled
+        ByteBuf buf = readDuplicated(false);
+        if (buf != null) {
+          return buf;
+        }
+      }
+      // all submitted were duplicated. Now start from mapId iterator.
+      IODataDescSync desc = (IODataDescSync) createNextDesc(config.getMaxBytesInFlight());
+      return getBySelf(desc, lastMapReduceIdForSubmit);
+    }
+
+    private ByteBuf tryNextTaskContext() throws IOException {
+      // make sure there are still some read tasks waiting/running/returned from other threads
+      // or they are readDuplicated by self
+      if (totalSubmitted == 0 || selfCurrentCtx == lastCtx) {
+        return getBySelfAndSubmitMore(config.getMaxBytesInFlight());
+      }
+      if (totalSubmitted < 0) {
+        throw new IllegalStateException("total submitted should be no less than 0. " + totalSubmitted);
+      }
+      try {
+        IODataDescBase desc;
+        if ((desc = tryGetFromOtherThread()) != null) {
+          submitMore();
+          return validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
+        }
+        // duplicate and get data by self
+        return readDuplicated(true);
+      } catch (InterruptedException e) {
+        throw new IOException("read interrupted.", e);
+      }
+    }
+
+    /**
+     * we have to duplicate submitted desc since mapId was moved.
+     *
+     * @return
+     * @throws IOException
+     */
+    private ByteBuf readDuplicated(boolean expectNotNullCtx) throws IOException {
+      ReadTaskContext context = getNextNonReturnedCtx();
+      if (context == null) {
+        if (expectNotNullCtx) {
+          throw new IllegalStateException("context should not be null. totalSubmitted: " + totalSubmitted);
+        }
+        if (!fromOtherThread) {
+          lastCtx = null;
+        }
+        return null;
+      }
+      IODataDescSync newDesc = context.getDesc().duplicate();
+      ByteBuf buf = getBySelf(newDesc, context.getMapReduceId());
+      selfCurrentCtx = context;
+      return buf;
+    }
+
+    private IODataDescBase tryGetFromOtherThread() throws InterruptedException, IOException {
+      IODataDescBase desc = tryGetValidCompleted();
+      if (desc != null) {
+        return desc;
+      }
+      // check completion
+      if ((!mapIdIt.hasNext()) && curMapReduceId == null && totalSubmitted == 0) {
+        return null;
+      }
+      // wait for specified time
+      desc = waitForValidFromOtherThread();
+      if (desc != null) {
+        return desc;
+      }
+      // check wait times and cancel task
+      cancelTasks(false);
+      return null;
+    }
+
+    private IODataDescBase waitForValidFromOtherThread() throws InterruptedException, IOException {
+      IODataDescBase desc;
+      while (true) {
+        long start = System.nanoTime();
+        boolean timeout = waitForCondition(config.getWaitDataTimeMs());
+        metrics.incFetchWaitTime(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+        if (timeout) {
+          exceedWaitTimes++;
+          if (logger.isDebugEnabled()) {
+            logger.debug("exceed wait: {}ms, times: {}", config.getWaitDataTimeMs(), exceedWaitTimes);
+          }
+          if (exceedWaitTimes >= config.getWaitTimeoutTimes()) {
+            return null;
+          }
+        }
+        // get some results after wait
+        desc = tryGetValidCompleted();
+        if (desc != null) {
+          return desc;
+        }
+      }
+    }
+
+    private void submitMore() throws IOException {
+      while (totalSubmitted < config.getReadBatchSize() && totalInMemSize < config.getMaxMem()) {
+        IODataDescSync taskDesc = (IODataDescSync) createNextDesc(config.getMaxBytesInFlight());
+        if (taskDesc == null) {
+          break;
+        }
+        submit(taskDesc, lastMapReduceIdForSubmit);
+      }
+    }
+
+    protected IODataDescSync tryGetValidCompleted() throws IOException {
+      if (moveForward()) {
+        return (IODataDescSync) currentDesc;
+      }
+      return null;
+    }
+
+    /**
+     * for first read.
+     *
+     * @param selfReadLimit
+     * @return
+     * @throws IOException
+     */
+    private ByteBuf getBySelfAndSubmitMore(long selfReadLimit) throws IOException {
+      entryIdx = 0;
+      // fetch the next by self
+      IODataDescSync desc = (IODataDescSync) createNextDesc(selfReadLimit);
+      Tuple2<Long, Integer> mapreduceId = reader.lastMapReduceIdForSubmit;
+      try {
+        if (fromOtherThread) {
+          submitMore();
+        }
+      } catch (Exception e) {
+        desc.release();
+        if (e instanceof IOException) {
+          throw (IOException)e;
+        }
+        throw new IOException("failed to submit more", e);
+      }
+      // first time read from reduce task
+      return getBySelf(desc, mapreduceId);
+    }
+
+    @Override
+    protected IODataDescBase createFetchDataDesc(String reduceId) throws IOException {
+      return object.createDataDescForFetch(String.valueOf(reduceId), IODataDescSync.IodType.ARRAY,
+          1);
+    }
+
+    @Override
+    protected void addFetchEntry(IODataDescBase desc, String mapId, long offset, long readSize) throws IOException {
+      if (readSize > Integer.MAX_VALUE) {
+        throw new IllegalArgumentException("readSize should not exceed " + Integer.MAX_VALUE);
+      }
+      ((IODataDescSync)desc).addEntryForFetch(String.valueOf(mapId), offset, (int)readSize);
+    }
+
+    private ByteBuf getBySelf(IODataDescSync desc, Tuple2<Long, Integer> mapreduceId) throws IOException {
+      // get data by self, no need to release currentDesc
+      if (desc == null) { // reach end
+        return null;
+      }
+      boolean releaseBuf = false;
+      try {
+        object.fetch(desc);
+        currentDesc = desc;
+        ByteBuf buf = validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
+        lastMapReduceIdForReturn = mapreduceId;
+        return buf;
+      } catch (IOException | IllegalStateException e) {
+        releaseBuf = true;
+        throw e;
+      } finally {
+        desc.release(releaseBuf);
+      }
+    }
   }
 
   /**
@@ -617,7 +503,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
      * to track which map reduce ID this task fetches data for
      */
     ReadTaskContext(DaosObject object, AtomicInteger counter, Lock takeLock, Condition notEmpty,
-                           IODataDesc desc, Object mapReduceId) {
+                           IODataDescSync desc, Object mapReduceId) {
       super(object, counter, takeLock, notEmpty);
       this.desc = desc;
       this.morePara = mapReduceId;

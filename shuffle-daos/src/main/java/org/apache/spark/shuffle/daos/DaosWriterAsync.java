@@ -24,7 +24,9 @@
 package org.apache.spark.shuffle.daos;
 
 import io.daos.DaosEventQueue;
+import io.daos.TimedOutException;
 import io.daos.obj.DaosObject;
+import io.daos.obj.IOSimpleDDAsync;
 import io.daos.obj.IOSimpleDataDesc;
 
 import java.io.IOException;
@@ -36,10 +38,13 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   private DaosEventQueue eq;
 
+  private int running;
+
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
 
-  public DaosWriterAsync(DaosObject object, WriteParam param) {
+  public DaosWriterAsync(DaosObject object, WriteParam param) throws IOException {
     super(object, param);
+    eq = DaosEventQueue.getInstance(0);
   }
 
   @Override
@@ -49,28 +54,62 @@ public class DaosWriterAsync extends DaosWriterBase {
       return;
     }
     DaosEventQueue.Event event = acquireEvent();
-    buffer.createUpdateDescAsync();
+    IOSimpleDDAsync desc = buffer.createUpdateDescAsync(eq.getEqWrapperHdl());
+    desc.setEvent(event);
+    try {
+      object.updateAsync(desc);
+      running++;
+    } catch (Exception e) {
+      // TODO: putback event
+      desc.release();
+      throw e;
+    }
   }
 
   private DaosEventQueue.Event acquireEvent() throws IOException {
     completedList.clear();
-    eq = DaosEventQueue.getInstance(0);
     DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitTimeMs(), completedList);
     verifyCompleted();
     return event;
   }
 
   private void verifyCompleted() throws IOException {
-    for (DaosEventQueue.Attachment attachment : completedList) {
-      if (!((IOSimpleDataDesc)attachment).isSucceeded()) {
-        throw new IOException("failed to write " + attachment);
+    try {
+      for (DaosEventQueue.Attachment attachment : completedList) {
+        if (!((IOSimpleDataDesc) attachment).isSucceeded()) {
+          throw new IOException("failed to write " + attachment);
+        }
       }
+    } finally {
+      running -= completedList.size();
+      completedList.forEach(attachment -> attachment.release());
     }
   }
 
   @Override
   public void close() {
+    try {
+      while (running > 0) {
+        completedList.clear();
+        int n = eq.pollCompleted(completedList, running, config.getWaitTimeMs());
+        if (n == 0) {
+          throw new TimedOutException("timed out after " + config.getWaitTimeMs());
+        }
+        verifyCompleted();
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("failed to complete all running updates. ", e);
+    }
 
+    if (writerMap != null) {
+      writerMap.remove(this);
+      writerMap = null;
+    }
+
+    if (completedList != null) {
+      completedList.clear();
+      completedList = null;
+    }
   }
 
   public void setWriterMap(Map<DaosWriter, Integer> writerMap) {
