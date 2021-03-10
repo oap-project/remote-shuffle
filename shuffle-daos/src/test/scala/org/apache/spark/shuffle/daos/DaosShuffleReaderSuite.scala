@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import java.io.ByteArrayOutputStream
 import java.util
 
 import io.daos.BufferAllocator
-import io.daos.obj.{DaosObject, IODataDesc}
+import io.daos.obj.{DaosObject, IODataDescSync}
 import org.mockito._
 import org.mockito.Mockito.{doNothing, mock, when}
 
@@ -53,14 +53,14 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
     val daosReader: DaosReaderSync = new DaosReaderSync(daosObject, new ReaderConfig(), null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
 
-    val desc = Mockito.mock(classOf[IODataDesc])
-    when(daosObject.createDataDescForFetch(String.valueOf(reduceId), IODataDesc.IodType.ARRAY, 1))
+    val desc = Mockito.mock(classOf[IODataDescSync])
+    when(daosObject.createDataDescForFetch(String.valueOf(reduceId), IODataDescSync.IodType.ARRAY, 1))
       .thenReturn(desc)
     doNothing().when(daosObject).fetch(desc)
     when(desc.getNbrOfEntries()).thenReturn(numMaps)
 
     (0 until numMaps).foreach(i => {
-      val entry = Mockito.mock(classOf[desc.Entry])
+      val entry = Mockito.mock(classOf[desc.SyncEntry])
       when(desc.getEntry(i)).thenReturn(entry)
       val buf = BufferAllocator.objBufWithNativeOrder(byteOutputStream.size())
       buf.writeBytes(byteOutputStream.toByteArray)
@@ -80,14 +80,14 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
         executors.nextExecutor()))
       else new DaosReaderSync(daosObject, new ReaderConfig(), null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
-    val descList = new util.ArrayList[IODataDesc]
+    val descList = new util.ArrayList[IODataDescSync]
 
     (0 until numMaps).foreach(_ => {
-      descList.add(Mockito.mock(classOf[IODataDesc]))
+      descList.add(Mockito.mock(classOf[IODataDescSync]))
     })
     val times = Array[Int](1)
     times(0) = 0
-    when(daosObject.createDataDescForFetch(String.valueOf(reduceId), IODataDesc.IodType.ARRAY, 1))
+    when(daosObject.createDataDescForFetch(String.valueOf(reduceId), IODataDescSync.IodType.ARRAY, 1))
       .thenAnswer(i => {
         val desc = descList.get(times(0))
         times(0) += 1
@@ -100,7 +100,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
       when(desc.getNbrOfEntries()).thenReturn(1)
       when(desc.isSucceeded()).thenReturn(true)
       when(desc.getTotalRequestSize).thenReturn(byteOutputStream.toByteArray.length)
-      val entry = Mockito.mock(classOf[desc.Entry])
+      val entry = Mockito.mock(classOf[desc.SyncEntry])
       when(desc.getEntry(0)).thenReturn(entry)
       val buf = BufferAllocator.objBufWithNativeOrder(byteOutputStream.size())
       buf.writeBytes(byteOutputStream.toByteArray)

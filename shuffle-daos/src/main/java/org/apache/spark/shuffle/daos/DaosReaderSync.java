@@ -226,7 +226,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
   }
 
   private class InnerReader extends DaosReaderBase {
-    public InnerReader(DaosObject object, ReaderConfig config) {
+    InnerReader(DaosObject object, ReaderConfig config) {
       super(object, config);
     }
 

@@ -74,7 +74,7 @@ public class IOManagerAsync extends IOManager {
     if (logger.isDebugEnabled()) {
       logger.debug("getting daosreader for app id: " + appId + ", shuffle id: " + shuffleId);
     }
-    DaosReaderAsync reader = new DaosReaderAsync();
+    DaosReaderAsync reader = new DaosReaderAsync(getObject(appId, shuffleId), readerConfig);
     reader.setReaderMap(readerMap);
     return null;
   }

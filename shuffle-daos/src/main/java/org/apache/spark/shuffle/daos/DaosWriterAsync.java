@@ -27,18 +27,15 @@ import io.daos.DaosEventQueue;
 import io.daos.TimedOutException;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IOSimpleDDAsync;
-import io.daos.obj.IOSimpleDataDesc;
 
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class DaosWriterAsync extends DaosWriterBase {
 
   private DaosEventQueue eq;
 
-  private int running;
+  private Set<IOSimpleDDAsync> descSet = new LinkedHashSet<>();
 
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
 
@@ -55,13 +52,13 @@ public class DaosWriterAsync extends DaosWriterBase {
     }
     DaosEventQueue.Event event = acquireEvent();
     IOSimpleDDAsync desc = buffer.createUpdateDescAsync(eq.getEqWrapperHdl());
+    descSet.add(desc);
     desc.setEvent(event);
     try {
       object.updateAsync(desc);
-      running++;
     } catch (Exception e) {
-      // TODO: putback event
       desc.release();
+      descSet.remove(desc);
       throw e;
     }
   }
@@ -74,24 +71,34 @@ public class DaosWriterAsync extends DaosWriterBase {
   }
 
   private void verifyCompleted() throws IOException {
-    try {
-      for (DaosEventQueue.Attachment attachment : completedList) {
-        if (!((IOSimpleDataDesc) attachment).isSucceeded()) {
-          throw new IOException("failed to write " + attachment);
+    IOSimpleDDAsync failed = null;
+    int failedCnt = 0;
+    for (DaosEventQueue.Attachment attachment : completedList) {
+      if (descSet.contains(attachment)) {
+        attachment.release();
+        descSet.remove(attachment);
+        IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
+        if (desc.isSucceeded()) {
+          continue;
+        }
+        failedCnt++;
+        if (failed == null) {
+          failed = desc;
         }
       }
-    } finally {
-      running -= completedList.size();
-      completedList.forEach(attachment -> attachment.release());
+    }
+    if (failedCnt > 0) {
+      throw new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
     }
   }
 
   @Override
   public void close() {
+    int left;
     try {
-      while (running > 0) {
+      while ((left=descSet.size()) > 0) {
         completedList.clear();
-        int n = eq.pollCompleted(completedList, running, config.getWaitTimeMs());
+        int n = eq.pollCompleted(completedList, left, config.getWaitTimeMs());
         if (n == 0) {
           throw new TimedOutException("timed out after " + config.getWaitTimeMs());
         }
@@ -99,6 +106,9 @@ public class DaosWriterAsync extends DaosWriterBase {
       }
     } catch (IOException e) {
       throw new IllegalStateException("failed to complete all running updates. ", e);
+    } finally {
+      descSet.forEach(desc -> desc.release());
+      descSet.clear();
     }
 
     if (writerMap != null) {

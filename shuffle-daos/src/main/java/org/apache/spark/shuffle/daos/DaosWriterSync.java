@@ -239,7 +239,7 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   private final class InnerWriter extends DaosWriterBase {
-    public InnerWriter(DaosObject object, DaosWriter.WriteParam param) {
+    InnerWriter(DaosObject object, DaosWriter.WriteParam param) {
       super(object, param);
     }
 

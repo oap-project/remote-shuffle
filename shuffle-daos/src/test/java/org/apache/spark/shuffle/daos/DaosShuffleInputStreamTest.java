@@ -23,10 +23,7 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.obj.DaosObjClient;
-import io.daos.obj.DaosObject;
-import io.daos.obj.DaosObjectId;
-import io.daos.obj.IODataDesc;
+import io.daos.obj.*;
 import io.netty.buffer.ByteBuf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.spark.SparkConf;
@@ -235,7 +232,7 @@ public class DaosShuffleInputStreamTest {
       method.invoke(desc);
 
       IODataDesc.Entry entry = desc.getEntry(0);
-      int offset = entry.getOffset();
+      long offset = entry.getOffset();
       if (String.valueOf(pos).equals(entry.getKey()) && offset == desiredOffset) {
         if (wait.get() == 0) {
           wait.incrementAndGet();
@@ -273,7 +270,7 @@ public class DaosShuffleInputStreamTest {
       method.invoke(desc);
 
       IODataDesc.Entry entry = desc.getEntry(0);
-      int offset = entry.getOffset();
+      long offset = entry.getOffset();
       if ("0".equals(entry.getKey()) && offset == 0) {
         latch.countDown();
         checkAndSetSize(desc, succeeded, 10*1024);
@@ -314,7 +311,7 @@ public class DaosShuffleInputStreamTest {
     objectConstructor.setAccessible(true);
     DaosObject daosObject = Mockito.spy(objectConstructor.newInstance(client, id));
 
-    Mockito.doAnswer(answer).when(daosObject).fetch(any(IODataDesc.class));
+    Mockito.doAnswer(answer).when(daosObject).fetch(any(IODataDescSync.class));
 
     BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
         new DaosReaderSync.ReadThreadFactory());

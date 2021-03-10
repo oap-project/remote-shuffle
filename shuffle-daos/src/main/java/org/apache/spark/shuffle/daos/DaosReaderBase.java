@@ -2,7 +2,6 @@ package org.apache.spark.shuffle.daos;
 
 import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDescBase;
-import io.daos.obj.IODataDescSync;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
