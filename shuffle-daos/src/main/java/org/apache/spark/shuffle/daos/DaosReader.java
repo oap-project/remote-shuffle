@@ -149,6 +149,9 @@ public interface DaosReader {
     }
 
     private void initialize() {
+      if (conf == null) {
+        this.conf = SparkEnv.get().conf();
+      }
       minReadSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_MINIMUM_SIZE()) * 1024;
       this.maxBytesInFlight = -1L;
       this.maxMem = -1L;

@@ -298,6 +298,9 @@ public interface DaosWriter {
 
     WriterConfig(SparkConf conf) {
       this.conf = conf;
+      if (this.conf == null) {
+        this.conf = SparkEnv.get().conf();
+      }
       warnSmallWrite = (boolean) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WARN_SMALL_SIZE());
       bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
           * 1024 * 1024);

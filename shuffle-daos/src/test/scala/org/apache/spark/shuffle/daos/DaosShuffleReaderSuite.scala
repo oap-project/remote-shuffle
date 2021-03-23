@@ -50,7 +50,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
     (DaosReader, DaosShuffleIO, DaosObject) = {
     // mock
     val daosObject = Mockito.mock(classOf[DaosObject])
-    val daosReader: DaosReaderSync = new DaosReaderSync(daosObject, new ReaderConfig(Mockito.mock(classOf[SparkConf])),
+    val daosReader: DaosReaderSync = new DaosReaderSync(daosObject, new ReaderConfig(null),
       null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
 
@@ -78,9 +78,9 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
     val daosObject = Mockito.mock(classOf[DaosObject])
     val daosReader: DaosReaderSync =
       if (executors != null) Mockito.spy(new DaosReaderSync(daosObject,
-        new DaosReader.ReaderConfig(Mockito.mock(classOf[SparkConf])),
+        new DaosReader.ReaderConfig(null),
         executors.nextExecutor()))
-      else new DaosReaderSync(daosObject, new ReaderConfig(Mockito.mock(classOf[SparkConf])), null)
+      else new DaosReaderSync(daosObject, new ReaderConfig(null), null)
     val shuffleIO = Mockito.mock(classOf[DaosShuffleIO])
     val descList = new util.ArrayList[IODataDescSync]
 
