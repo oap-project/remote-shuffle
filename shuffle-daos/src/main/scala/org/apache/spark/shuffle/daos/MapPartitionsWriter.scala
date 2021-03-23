@@ -115,6 +115,7 @@ class MapPartitionsWriter[K, V, C](
   def commitAll: Array[Long] = {
     writeBuffer.flushAll
     writeBuffer.close
+    daosWriter.flushAll()
     daosWriter.getPartitionLens(numPartitions)
   }
 

@@ -56,10 +56,31 @@ public class DaosWriterAsync extends DaosWriterBase {
     desc.setEvent(event);
     try {
       object.updateAsync(desc);
+      buffer.reset(false);
     } catch (Exception e) {
       desc.release();
       descSet.remove(desc);
       throw e;
+    }
+  }
+
+  @Override
+  public void flushAll() throws IOException {
+    int left;
+    try {
+      while ((left=descSet.size()) > 0) {
+        completedList.clear();
+        int n = eq.pollCompleted(completedList, left, config.getWaitTimeMs());
+        if (n == 0) {
+          throw new TimedOutException("timed out after " + config.getWaitTimeMs());
+        }
+        verifyCompleted();
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("failed to complete all running updates. ", e);
+    } finally {
+      descSet.forEach(desc -> desc.release());
+      descSet.clear();
     }
   }
 
@@ -94,23 +115,6 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   @Override
   public void close() {
-    int left;
-    try {
-      while ((left=descSet.size()) > 0) {
-        completedList.clear();
-        int n = eq.pollCompleted(completedList, left, config.getWaitTimeMs());
-        if (n == 0) {
-          throw new TimedOutException("timed out after " + config.getWaitTimeMs());
-        }
-        verifyCompleted();
-      }
-    } catch (IOException e) {
-      throw new IllegalStateException("failed to complete all running updates. ", e);
-    } finally {
-      descSet.forEach(desc -> desc.release());
-      descSet.clear();
-    }
-
     if (writerMap != null) {
       writerMap.remove(this);
       writerMap = null;

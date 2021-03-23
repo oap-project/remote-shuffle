@@ -89,6 +89,13 @@ public interface DaosWriter {
   void flush(int partitionId) throws IOException;
 
   /**
+   * Flush all pending writes.
+   *
+   * @throws IOException
+   */
+  void flushAll() throws IOException;
+
+  /**
    * close writer.
    */
   void close();

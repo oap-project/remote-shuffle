@@ -78,6 +78,9 @@ public abstract class DaosWriterBase implements DaosWriter {
   }
 
   @Override
+  public void flushAll() {}
+
+  @Override
   public long[] getPartitionLens(int numPartitions) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("partition map size: " + partitionBufArray.length);
