@@ -315,7 +315,8 @@ public class DaosShuffleInputStreamTest {
 
     BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
         new DaosReaderSync.ReadThreadFactory());
-    DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(), executors.nextExecutor());
+    DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(testConf),
+            executors.nextExecutor());
     LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;

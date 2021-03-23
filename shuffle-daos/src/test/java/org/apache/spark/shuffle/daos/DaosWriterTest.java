@@ -64,7 +64,7 @@ public class DaosWriterTest {
 
   @Test
   public void testGetLensWithAllEmptyPartitions() {
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
@@ -92,7 +92,7 @@ public class DaosWriterTest {
 
     Mockito.doNothing().when(daosObject).update(any(IODataDescSync.class));
 
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
@@ -144,7 +144,7 @@ public class DaosWriterTest {
       return invoc;
     }).when(daosObject).update(any(IODataDescSync.class));
 
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)

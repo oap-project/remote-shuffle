@@ -292,11 +292,12 @@ public interface DaosWriter {
     private int totalSubmittedLimit;
     private int threads;
     private boolean fromOtherThreads;
+    private SparkConf conf;
 
     private static final Logger logger = LoggerFactory.getLogger(WriterConfig.class);
 
-    WriterConfig() {
-      SparkConf conf = SparkEnv.get().conf();
+    WriterConfig(SparkConf conf) {
+      this.conf = conf;
       warnSmallWrite = (boolean) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WARN_SMALL_SIZE());
       bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
           * 1024 * 1024);

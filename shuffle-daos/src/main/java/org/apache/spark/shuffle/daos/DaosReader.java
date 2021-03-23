@@ -133,21 +133,22 @@ public interface DaosReader {
     private int waitDataTimeMs;
     private int waitTimeoutTimes;
     private boolean fromOtherThread;
+    private SparkConf conf;
 
     private static final Logger log = LoggerFactory.getLogger(ReaderConfig.class);
 
-    public ReaderConfig() {
-      this(true);
+    public ReaderConfig(SparkConf conf) {
+      this(conf, true);
     }
 
-    private ReaderConfig(boolean load) {
+    private ReaderConfig(SparkConf conf, boolean load) {
+      this.conf = conf;
       if (load) {
         initialize();
       }
     }
 
     private void initialize() {
-      SparkConf conf = SparkEnv.get().conf();
       minReadSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_MINIMUM_SIZE()) * 1024;
       this.maxBytesInFlight = -1L;
       this.maxMem = -1L;
@@ -167,7 +168,7 @@ public interface DaosReader {
     }
 
     public ReaderConfig copy(long maxBytesInFlight, long maxMem) {
-      ReaderConfig rc = new ReaderConfig(false);
+      ReaderConfig rc = new ReaderConfig(conf, false);
       rc.maxMem = maxMem;
       rc.minReadSize = minReadSize;
       rc.readBatchSize = readBatchSize;

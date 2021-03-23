@@ -46,8 +46,8 @@ public class IOManagerAsync extends IOManager {
 
   public IOManagerAsync(SparkConf conf, Map<String, DaosObject> objectMap) {
     super(conf, objectMap);
-    readerConfig = new DaosReader.ReaderConfig();
-    writerConfig = new DaosWriter.WriterConfig();
+    readerConfig = new DaosReader.ReaderConfig(conf);
+    writerConfig = new DaosWriter.WriterConfig(conf);
   }
 
   @Override
