@@ -27,6 +27,7 @@ import io.daos.obj.DaosObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.Map;
 
 public abstract class DaosWriterBase implements DaosWriter {
@@ -78,7 +79,7 @@ public abstract class DaosWriterBase implements DaosWriter {
   }
 
   @Override
-  public void flushAll() {}
+  public void flushAll() throws IOException {}
 
   @Override
   public long[] getPartitionLens(int numPartitions) {

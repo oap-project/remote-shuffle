@@ -23,12 +23,12 @@
 
 package org.apache.spark.shuffle.daos
 
-import java.util.Comparator
-
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
+
+import java.util.Comparator
 
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,

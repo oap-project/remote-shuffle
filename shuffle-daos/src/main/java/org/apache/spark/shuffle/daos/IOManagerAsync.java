@@ -76,7 +76,7 @@ public class IOManagerAsync extends IOManager {
     }
     DaosReaderAsync reader = new DaosReaderAsync(getObject(appId, shuffleId), readerConfig);
     reader.setReaderMap(readerMap);
-    return null;
+    return reader;
   }
 
   @Override

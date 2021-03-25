@@ -50,8 +50,12 @@ public class DaosWriterAsync extends DaosWriterBase {
     if (buffer == null) {
       return;
     }
-    DaosEventQueue.Event event = acquireEvent();
     IOSimpleDDAsync desc = buffer.createUpdateDescAsync(eq.getEqWrapperHdl());
+    if (desc == null) {
+      buffer.reset(true);
+      return;
+    }
+    DaosEventQueue.Event event = acquireEvent();
     descSet.add(desc);
     desc.setEvent(event);
     try {

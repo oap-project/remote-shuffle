@@ -110,6 +110,9 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     iw.flush(partitionId);
   }
 
+  @Override
+  public void flushAll() {}
+
   private void runBySelf(IODataDescSync desc, NativeBuffer buffer) throws IOException {
     totalBySelfTimes++;
     try {
