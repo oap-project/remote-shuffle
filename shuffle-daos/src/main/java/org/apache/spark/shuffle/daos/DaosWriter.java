@@ -293,6 +293,7 @@ public interface DaosWriter {
     private int bufferSize;
     private int minSize;
     private boolean warnSmallWrite;
+    private int asyncWriteBatchSize;
     private long waitTimeMs;
     private int timeoutTimes;
     private long totalInMemSize;
@@ -312,6 +313,7 @@ public interface DaosWriter {
       bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
           * 1024 * 1024);
       minSize = (int) ((long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MINIMUM_SIZE()) * 1024);
+      asyncWriteBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_ASYNC_WRITE_BATCH_SIZE());
       timeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES());
       waitTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_MS());
       totalInMemSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MAX_BYTES_IN_FLIGHT()) * 1024;
@@ -347,6 +349,10 @@ public interface DaosWriter {
 
     public long getTotalInMemSize() {
       return totalInMemSize;
+    }
+
+    public int getAsyncWriteBatchSize() {
+      return asyncWriteBatchSize;
     }
 
     public int getTotalSubmittedLimit() {

@@ -165,6 +165,24 @@ package object daos {
       .intConf
       .createWithDefault(1)
 
+  val SHUFFLE_DAOS_ASYNC_WRITE_BATCH_SIZE =
+    ConfigBuilder("spark.shuffle.daos.async.write.batch")
+      .doc("number of async write before flush")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v > 0,
+        s"async write batch size must be positive")
+      .createWithDefault(1)
+
+  val SHUFFLE_DAOS_ASYNC_READ_BATCH_SIZE =
+    ConfigBuilder("spark.shuffle.daos.async.read.batch")
+      .doc("number of async read to submit at most at each time")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v > 0,
+        s"read batch size must be positive")
+      .createWithDefault(1)
+
   val SHUFFLE_DAOS_READ_BATCH_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.batch")
       .doc("number of read tasks to submit at most at each time")

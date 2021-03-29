@@ -130,7 +130,7 @@ public class DaosReaderAsync extends DaosReaderBase {
   }
 
   private ByteBuf readFromDaos() throws IOException {
-    while (runningDescSet.isEmpty() || (runningDescSet.size() < config.getReadBatchSize()
+    while (runningDescSet.isEmpty() || (runningDescSet.size() < config.getAsyncReadBatchSize()
         && totalInMemSize < config.getMaxMem())) {
       DaosEventQueue.Event event = null;
       TimedOutException te = null;

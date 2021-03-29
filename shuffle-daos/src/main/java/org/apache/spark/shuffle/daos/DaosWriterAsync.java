@@ -27,6 +27,8 @@ import io.daos.DaosEventQueue;
 import io.daos.TimedOutException;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IOSimpleDDAsync;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.*;
@@ -38,6 +40,8 @@ public class DaosWriterAsync extends DaosWriterBase {
   private Set<IOSimpleDDAsync> descSet = new LinkedHashSet<>();
 
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
+
+  private static final Logger log = LoggerFactory.getLogger(DaosWriterAsync.class);
 
   public DaosWriterAsync(DaosObject object, WriteParam param) throws IOException {
     super(object, param);
@@ -65,6 +69,9 @@ public class DaosWriterAsync extends DaosWriterBase {
       desc.release();
       descSet.remove(desc);
       throw e;
+    }
+    if (descSet.size() >= config.getAsyncWriteBatchSize()) {
+      flushAll();
     }
   }
 
