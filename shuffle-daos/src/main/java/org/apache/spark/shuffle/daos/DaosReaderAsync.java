@@ -37,12 +37,6 @@ public class DaosReaderAsync extends DaosReaderBase {
 
   private DaosEventQueue eq;
 
-  private long totalInMemSize;
-
-  private int nextCursor;
-
-  private int nextSequence;
-
   private Set<IOSimpleDDAsync> runningDescSet = new LinkedHashSet<>();
 
   private LinkedList<IOSimpleDDAsync> readyList = new LinkedList<>();
@@ -80,41 +74,19 @@ public class DaosReaderAsync extends DaosReaderBase {
     }
     // next desc
     entryIdx = 0;
-    IOSimpleDDAsync desc = nextDesc();
-    if (desc != null) {
-      return enterNewDesc(desc);
-    }
     return readFromDaos();
   }
 
   private ByteBuf enterNewDesc(IOSimpleDDAsync desc) throws IOException {
     if (currentDesc != null) {
       currentDesc.release();
-      totalInMemSize -= currentDesc.getTotalRequestSize();
     }
     currentDesc = desc;
     return validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
   }
 
   private IOSimpleDDAsync nextDesc() throws IOException {
-    IOSimpleDDAsync desc = readyList.peekFirst();
-    if (desc != null) {
-      if (desc.getSequence() == nextCursor) { // make sure next desc is desired
-        readyList.removeFirst();
-        nextCursor++;
-        return desc;
-      }
-      progress();
-      desc = readyList.peekFirst();
-      if (desc == null || desc.getSequence() != nextCursor) {
-        throw new TimedOutException("failed to get " + nextCursor + "th desc in another " +
-            config.getWaitDataTimeMs() + "ms");
-      }
-      readyList.removeFirst();
-      nextCursor++;
-      return desc;
-    }
-    return null;
+    return readyList.poll();
   }
 
   private void progress() throws IOException {
@@ -122,25 +94,26 @@ public class DaosReaderAsync extends DaosReaderBase {
       return;
     }
     completedList.clear();
-    int n = eq.pollCompleted(completedList, runningDescSet.size(), config.getWaitDataTimeMs());
-    if (n == 0) {
-      throw new TimedOutException("timed out after " + config.getWaitDataTimeMs());
+    long timeOutMs = config.getWaitDataTimeMs();
+    long start = System.currentTimeMillis();
+    int n = eq.pollCompleted(completedList, runningDescSet.size(), timeOutMs);
+    while (n == 0) {
+      long dur = System.currentTimeMillis() - start;
+      if (dur > timeOutMs) {
+        throw new TimedOutException("timed out after " + dur);
+      }
+      n = eq.pollCompleted(completedList, runningDescSet.size(), timeOutMs - dur);
     }
     verifyCompleted();
   }
 
   private ByteBuf readFromDaos() throws IOException {
-    while (runningDescSet.isEmpty() || (runningDescSet.size() < config.getAsyncReadBatchSize()
-        && totalInMemSize < config.getMaxMem())) {
+    if (runningDescSet.isEmpty()) {
       DaosEventQueue.Event event = null;
       TimedOutException te = null;
       try {
         event = acquireEvent();
       } catch (TimedOutException e) {
-        if (!runningDescSet.isEmpty()) {
-          // have something to poll
-          break;
-        }
         te = e;
       }
       IOSimpleDDAsync taskDesc = (IOSimpleDDAsync) createNextDesc(config.getMaxBytesInFlight());
@@ -148,12 +121,11 @@ public class DaosReaderAsync extends DaosReaderBase {
         if (event != null) {
           event.putBack();
         }
-        break;
+        return null;
       }
       if (te != null) { // have data to read, but no event
         throw te;
       }
-      taskDesc.setSequence(nextSequence++);
       runningDescSet.add(taskDesc);
       taskDesc.setEvent(event);
       try {
@@ -163,7 +135,6 @@ public class DaosReaderAsync extends DaosReaderBase {
         runningDescSet.remove(taskDesc);
         throw e;
       }
-      totalInMemSize += taskDesc.getTotalRequestSize();
     }
     progress();
     IOSimpleDDAsync desc = nextDesc();
@@ -188,7 +159,7 @@ public class DaosReaderAsync extends DaosReaderBase {
         IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
         runningDescSet.remove(attachment);
         if (desc.isSucceeded()) {
-          putDescInOrder(desc);
+          readyList.add(desc);
           continue;
         }
         failedCnt++;
@@ -200,23 +171,6 @@ public class DaosReaderAsync extends DaosReaderBase {
     if (failedCnt > 0) {
       throw new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
     }
-  }
-
-  private void putDescInOrder(IOSimpleDDAsync desc) {
-    int i;
-    for (i = 0; i < readyList.size(); i++) {
-      if (desc.getSequence() <= readyList.get(i).getSequence()) {
-        break;
-      }
-    }
-    if (i < readyList.size()) {
-      IOSimpleDDAsync old = readyList.get(i);
-      if (old.getSequence() == desc.getSequence()) {
-        throw new IllegalStateException("two descs with same sequence returned. new desc: \n" +
-            desc + ", \n" + old);
-      }
-    }
-    readyList.add(i, desc);
   }
 
   @Override
