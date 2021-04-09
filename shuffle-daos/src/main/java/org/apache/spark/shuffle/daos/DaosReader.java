@@ -130,7 +130,6 @@ public interface DaosReader {
     private long maxBytesInFlight;
     private long maxMem;
     private int readBatchSize;
-    private int asyncReadBatchSize;
     private int waitDataTimeMs;
     private int waitTimeoutTimes;
     private boolean fromOtherThread;
@@ -157,8 +156,7 @@ public interface DaosReader {
       this.maxBytesInFlight = -1L;
       this.maxMem = -1L;
       this.readBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_BATCH_SIZE());
-      this.asyncReadBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_ASYNC_READ_BATCH_SIZE());
-      this.waitDataTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+      this.waitDataTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
       this.waitTimeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES());
       this.fromOtherThread = (boolean)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_FROM_OTHER_THREAD());
       if (log.isDebugEnabled()) {
@@ -190,10 +188,6 @@ public interface DaosReader {
 
     public int getReadBatchSize() {
       return readBatchSize;
-    }
-
-    public int getAsyncReadBatchSize() {
-      return asyncReadBatchSize;
     }
 
     public int getWaitDataTimeMs() {

@@ -230,6 +230,8 @@ differences here.
 
 ```
     spark.shuffle.manager                      org.apache.spark.shuffle.daos.DaosShuffleManager
+    spark.shuffle.daos.pool.uuid               <POOL UUID>
+    spark.shuffle.daos.container.uuid          <CONTAINER UUID> 
 ```
 
 ### Classpath
@@ -242,3 +244,33 @@ differences here.
         $HOME/miniconda2/envs/oapenv/oap_jars/hadoop-daos-<version>.jar
         $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-daos-<version>.jar
 ```
+
+### Configuration
+
+There are some configurations for tuning shuffle IO. You can find all of them from package,
+"org.apache.spark.shuffle.daos". Here are some of them.
+
+```
+    spark.shuffle.daos.io.async         true
+```
+This shuffle plugin supports both sync IO and async IO. The default is async IO. You can change it by setting this
+value to "false". Most of other config items are valid for both sync IO and async IO. For sync or async only config
+items, you can find them from either its doc or name itself.
+
+
+```
+    spark.shuffle.remove.shuffle.data	true
+```
+All shuffled data is written to DAOS container. They should be deleted after job is done to save space. If you want
+to review the shuffled data after job, you can set it to "false".
+
+```
+    spark.shuffle.daos.read.wait.ms	5000
+    spark.shuffle.daos.write.wait.ms	5000
+```
+They are maximum milliseconds to wait before throwing TimedOutException.
+
+```
+    spark.shuffle.daos.write.buffer	800m
+```
+Total in-memory buffer size of each map task. You can tune it for you environment.

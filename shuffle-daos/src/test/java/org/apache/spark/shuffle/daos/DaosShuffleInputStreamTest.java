@@ -152,7 +152,7 @@ public class DaosShuffleInputStreamTest {
 
   public void readFromOtherThreadCancelMultipleTimes(Map<String, AtomicInteger> maps,
                                                      int addWaitTimeMs, boolean fromOtherThread) throws Exception {
-    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
@@ -215,7 +215,7 @@ public class DaosShuffleInputStreamTest {
   }
 
   private void testReadFromOtherThreadCancelOnce(int pos, int desiredOffset, int addWaitMs) throws Exception {
-    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
