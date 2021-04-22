@@ -30,6 +30,8 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
 
+import scala.util.Random
+
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
     context: TaskContext,
@@ -144,7 +146,17 @@ class MapPartitionsWriter[K, V, C](
     private val totalBufferInitial = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE).toInt * 1024 * 1024
     private val forceWritePct = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT)
     private val totalWriteValve = totalBufferThreshold * forceWritePct
+    private val partMoveInterval = conf.get(SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL)
+    private val totalWriteInterval = conf.get(SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL)
+    private val totalPartRatio = totalWriteInterval / partMoveInterval
     private[daos] val sampleStat = new SampleStat
+
+    private val random = new Random()
+    private val dividor = 1000 * 1024 * 1D
+    private val minExpBlockSize = conf.get(SHUFFLE_DAOS_WRITE_EXPECTED_MIN_BLOCK_SIZE) * 1024
+    // ceil(1/0.2) 0.2=(blocksize=200(KB)/1000)
+    private val maxPossibleRange = (1 / (minExpBlockSize / dividor).ceil).ceil.toInt
+    private var possibleRange = maxPossibleRange
 
     if (log.isDebugEnabled()) {
       log.debug("partBufferThreshold: " + partBufferThreshold)
@@ -152,11 +164,18 @@ class MapPartitionsWriter[K, V, C](
       log.debug("totalBufferInitial: " + totalBufferInitial)
       log.debug("forceWritePct: " + forceWritePct)
       log.debug("totalWriteValve: " + totalWriteValve)
+      log.debug("partMoveInterval: " + partMoveInterval)
+      log.debug("totalWriteInterval: " + totalWriteInterval)
     }
 
     if (totalBufferInitial > totalBufferThreshold) {
       throw new IllegalArgumentException("total buffer initial size (" + totalBufferInitial + ") should be no more " +
              "than total buffer threshold (" + totalBufferThreshold + ").")
+    }
+
+    if (totalPartRatio == 0) {
+      throw new IllegalArgumentException("totalWriteInterval (" + totalWriteInterval + ") should be no less than" +
+        " partMoveInterval (" + partMoveInterval)
     }
 
     private var totalSize = 0L
@@ -248,43 +267,66 @@ class MapPartitionsWriter[K, V, C](
     def changeValue(partitionId: Int, key: K, updateFunc: (Boolean, C) => C): Unit = {
       val map = partitionMapArray(partitionId)
       val estSize = map.changeValue(key, updateFunc)
-      afterUpdate(estSize, map)
-    }
-
-    def insert(partitionId: Int, key: K, value: C): Unit = {
-      val buffer = partitionBufferArray(partitionId)
-      val estSize = buffer.insert(key, value)
-      afterUpdate(estSize, buffer)
-    }
-
-    def afterUpdate[T <: SizeAware[K, C] with Linked[K, C]](estSize: Long, buffer: T): Unit = {
-      if (estSize > largestSize) {
-        largestSize = estSize
-        moveToFirst(buffer)
-      } else if (estSize == 0) {
-        moveToLast(buffer)
-      } else {
+      if (estSize == 0 || map.numOfRecords % partMoveInterval == 0) {
+        movePartition(estSize, map)
+      }
+      if (sampleStat.numUpdates % totalWriteInterval == 0) {
         // check if total buffer exceeds memory limit
         maybeWriteTotal()
       }
     }
 
-    private def writeFirst: Unit = {
-      val buffer = head.next
-      buffer.writeAndFlush
-      moveToLast(buffer)
+    def insert(partitionId: Int, key: K, value: C): Unit = {
+      val buffer = partitionBufferArray(partitionId)
+      val estSize = buffer.insert(key, value)
+      if (estSize == 0 || buffer.numOfRecords % partMoveInterval == 0) {
+        movePartition(estSize, buffer)
+      }
+      if (sampleStat.numUpdates % totalWriteInterval == 0) {
+        // check if total buffer exceeds memory limit
+        maybeWriteTotal()
+      }
+    }
+
+    def movePartition[T <: SizeAware[K, C] with Linked[K, C]](estSize: Long, buffer: T): Unit = {
+      if (estSize > largestSize) {
+        largestSize = estSize
+        moveToFirst(buffer)
+      } else if (estSize == 0) {
+        moveToLast(buffer)
+      }
+    }
+
+    private def writeFromHead: Unit = {
+      var buffer = head.next
+      var count = 0
+      var totalSize = 0L
+      while (buffer != end && count < totalPartRatio) {
+        totalSize += buffer.estimatedSize
+        buffer.writeAndFlush
+        moveToLast(buffer)
+        buffer = buffer.next
+        count += 1
+      }
+      val newRange = if (totalSize > 0) (1 / (totalSize / (count * dividor)).ceil).ceil.toInt
+        else possibleRange
+      possibleRange = Math.min(maxPossibleRange, newRange)
     }
 
     private def maybeWriteTotal(): Unit = {
-      if (totalSize > totalWriteValve) {
-        writeFirst
+      // write some partition out if total size is bigger than valve
+      // or
+      // force write even there is enough buffer to scatter write
+      if (totalSize > totalWriteValve || random.nextInt(possibleRange) == 0) {
+        writeFromHead
       }
       if (totalSize > memoryLimit) {
-        val memRequest = 2 * totalSize - memoryLimit
+        val limit = Math.min(2 * totalSize, totalBufferThreshold)
+        val memRequest = limit - memoryLimit
         val granted = acquireMemory(memRequest)
         memoryLimit += granted
         if (totalSize >= memoryLimit) {
-          writeFirst
+          writeFromHead
         }
       }
     }
@@ -424,6 +466,8 @@ class MapPartitionsWriter[K, V, C](
       afterUpdate(_estSize)
     }
 
+    def numOfRecords: Int = map.numOfRecords
+
     def reset: Unit = {
       map = new SizeSamplerAppendOnlyMap[K, C](parent.sampleStat)
       _estSize = map.estimateSize()
@@ -466,6 +510,8 @@ class MapPartitionsWriter[K, V, C](
       _estSize = buffer.estimateSize()
       afterUpdate(_estSize)
     }
+
+    def numOfRecords: Int = buffer.numOfRecords
 
     def reset: Unit = {
       buffer = new SizeSamplerPairBuffer[K, C](parent.sampleStat)

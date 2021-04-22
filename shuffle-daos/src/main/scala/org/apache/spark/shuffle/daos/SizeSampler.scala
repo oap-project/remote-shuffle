@@ -41,7 +41,7 @@ private[spark] trait SizeSampler {
   private val samples = new mutable.Queue[Sample]
 
   /** Total number of insertions and updates into the map since the last resetSamples(). */
-  private var numUpdates: Long = _
+  protected var numUpdates: Int = _
 
   private var bytesPerUpdate: Double = _
 
@@ -68,6 +68,8 @@ private[spark] trait SizeSampler {
       takeSample()
     }
   }
+
+  def numOfRecords: Int = numUpdates
 
   /**
    * Take a new sample of the current collection's size.
@@ -134,5 +136,5 @@ private[spark] class SampleStat {
 }
 
 private object SizeSampler {
-  case class Sample(size: Long, numUpdates: Long)
+  case class Sample(size: Long, numUpdates: Int)
 }

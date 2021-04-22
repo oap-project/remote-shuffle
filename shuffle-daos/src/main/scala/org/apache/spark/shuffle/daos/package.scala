@@ -241,4 +241,31 @@ package object daos {
       .version("3.0.0")
       .booleanConf
       .createWithDefault(true)
+
+  val SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL =
+    ConfigBuilder("spark.shuffle.daos.write.partition.move.interval")
+      .doc("move partition at every this interval (number of records). 1000 records by default.")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 10, "partition move interval should be at least 10.")
+      .createWithDefault(1000)
+
+  val SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL =
+    ConfigBuilder("spark.shuffle.daos.write.total.interval")
+      .doc("check total size of partitions and write some partitions at every this interval (number of records)." +
+        " This value should be no less than spark.shuffle.daos.write.partition.move.interval." +
+        " 10000 records by default.")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 100, "total interval should be bigger than 100.")
+      .createWithDefault(10000)
+
+  val SHUFFLE_DAOS_WRITE_EXPECTED_MIN_BLOCK_SIZE =
+    ConfigBuilder("spark.shuffle.daos.write.expected.min.block.size")
+      .doc("expected minimum shuffle block size. It's for scattering writing of partition data before total buffer" +
+        "size exceeding total buffer limit.")
+      .version("3.0.0")
+      .bytesConf(ByteUnit.KiB)
+      .checkValue(v => v >= 64, "expected minimum shuffle block size should be bigger than 64KB.")
+      .createWithDefaultString("200k")
 }
