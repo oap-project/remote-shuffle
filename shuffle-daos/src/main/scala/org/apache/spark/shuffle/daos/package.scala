@@ -259,13 +259,4 @@ package object daos {
       .intConf
       .checkValue(v => v >= 100, "total interval should be bigger than 100.")
       .createWithDefault(10000)
-
-  val SHUFFLE_DAOS_WRITE_EXPECTED_MIN_BLOCK_SIZE =
-    ConfigBuilder("spark.shuffle.daos.write.expected.min.block.size")
-      .doc("expected minimum shuffle block size. It's for scattering writing of partition data before total buffer" +
-        "size exceeding total buffer limit.")
-      .version("3.0.0")
-      .bytesConf(ByteUnit.KiB)
-      .checkValue(v => v >= 64, "expected minimum shuffle block size should be bigger than 64KB.")
-      .createWithDefaultString("200k")
 }

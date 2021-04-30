@@ -50,11 +50,11 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
 
   /** Add an element into the buffer */
   def insert(key: K, value: V): Unit = {
-    if (numUpdates == capacity) {
+    if (curSize == capacity) {
       growArray()
     }
-    data(2 * numUpdates) = key.asInstanceOf[AnyRef]
-    data(2 * numUpdates + 1) = value.asInstanceOf[AnyRef]
+    data(2 * curSize) = key.asInstanceOf[AnyRef]
+    data(2 * curSize + 1) = value.asInstanceOf[AnyRef]
     afterUpdate()
   }
 
@@ -79,7 +79,7 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
   def iterator(): Iterator[(K, V)] = new Iterator[(K, V)] {
     var pos = 0
 
-    override def hasNext: Boolean = pos < numUpdates
+    override def hasNext: Boolean = pos < curSize
 
     override def next(): (K, V) = {
       if (!hasNext) {

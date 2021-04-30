@@ -30,8 +30,6 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
 
-import scala.util.Random
-
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
     context: TaskContext,
@@ -150,13 +148,6 @@ class MapPartitionsWriter[K, V, C](
     private val totalWriteInterval = conf.get(SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL)
     private val totalPartRatio = totalWriteInterval / partMoveInterval
     private[daos] val sampleStat = new SampleStat
-
-    private val random = new Random()
-    private val dividor = 1000 * 1024 * 1D
-    private val minExpBlockSize = conf.get(SHUFFLE_DAOS_WRITE_EXPECTED_MIN_BLOCK_SIZE) * 1024
-    // ceil(1/0.2) 0.2=(blocksize=200(KB)/1000)
-    private val maxPossibleRange = (1 / (minExpBlockSize / dividor).ceil).ceil.toInt
-    private var possibleRange = maxPossibleRange
 
     if (log.isDebugEnabled()) {
       log.debug("partBufferThreshold: " + partBufferThreshold)
@@ -304,20 +295,16 @@ class MapPartitionsWriter[K, V, C](
       while (buffer != end && count < totalPartRatio) {
         totalSize += buffer.estimatedSize
         buffer.writeAndFlush
-        moveToLast(buffer)
+        val emptyBuffer = buffer
         buffer = buffer.next
+        moveToLast(emptyBuffer)
         count += 1
       }
-      val newRange = if (totalSize > 0) (1 / (totalSize / (count * dividor)).ceil).ceil.toInt
-        else possibleRange
-      possibleRange = Math.min(maxPossibleRange, newRange)
     }
 
     private def maybeWriteTotal(): Unit = {
       // write some partition out if total size is bigger than valve
-      // or
-      // force write even there is enough buffer to scatter write
-      if (totalSize > totalWriteValve || random.nextInt(possibleRange) == 0) {
+      if (totalSize > totalWriteValve) {
         writeFromHead
       }
       if (totalSize > memoryLimit) {
