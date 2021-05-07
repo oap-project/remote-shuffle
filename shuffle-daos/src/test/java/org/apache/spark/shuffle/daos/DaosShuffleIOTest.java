@@ -33,13 +33,17 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
+import org.mockito.internal.stubbing.answers.DoesNothing;
 import org.powermock.api.mockito.PowerMockito;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.core.classloader.annotations.SuppressStaticInitializationFor;
 import org.powermock.modules.junit4.PowerMockRunner;
+import org.powermock.reflect.Whitebox;
 
 import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -114,5 +118,53 @@ public class DaosShuffleIOTest {
     } finally {
       sc.stop();
     }
+  }
+
+  @Test
+  public void testInstantiateAsync() throws Exception {
+    SparkConf testConf = new SparkConf(false);
+    DaosShuffleIO io = new DaosShuffleIO(testConf);
+    Assert.assertTrue(Whitebox.getInternalState(io, "ioManager") instanceof IOManagerAsync);
+  }
+
+  @Test
+  public void testInstantiateSync() throws Exception {
+    SparkConf testConf = new SparkConf(false);
+    testConf.set(package$.MODULE$.SHUFFLE_DAOS_IO_ASYNC(), "false");
+    DaosShuffleIO io = new DaosShuffleIO(testConf);
+    Assert.assertTrue(Whitebox.getInternalState(io, "ioManager") instanceof IOManagerSync);
+  }
+
+  @Test
+  public void testRemoveShuffle() throws Exception {
+    SparkConf testConf = new SparkConf(false);
+    int shuffleId = 10000;
+    int appId = 123456;
+    testConf.set("spark.app.id", String.valueOf(appId));
+    DaosShuffleIO io = new DaosShuffleIO(testConf);
+    Map<String, DaosObject> objectMap = new ConcurrentHashMap<>();
+    DaosObject object = Mockito.mock(DaosObject.class);
+    Mockito.doNothing().when(object).punch();
+    Mockito.doNothing().when(object).close();
+    objectMap.put(appId + "" + shuffleId, object);
+    io.removeShuffle(shuffleId);
+    Mockito.verify(object);
+  }
+
+  @Test
+  public void testKeepShuffledData() throws Exception {
+    SparkConf testConf = new SparkConf(false);
+    testConf.set(package$.MODULE$.SHUFFLE_DAOS_REMOVE_SHUFFLE_DATA(), "false");
+    int shuffleId = 10000;
+    int appId = 123456;
+    testConf.set("spark.app.id", String.valueOf(appId));
+    DaosShuffleIO io = new DaosShuffleIO(testConf);
+    Map<String, DaosObject> objectMap = new ConcurrentHashMap<>();
+    DaosObject object = Mockito.mock(DaosObject.class);
+    Mockito.doThrow(new IllegalStateException("shuffled data should be kept")).when(object).punch();
+    Mockito.doNothing().when(object).close();
+    objectMap.put(appId + "" + shuffleId, object);
+    io.removeShuffle(shuffleId);
+    Mockito.verify(object);
   }
 }

@@ -169,7 +169,7 @@ public class DaosReaderAsync extends DaosReaderBase {
       }
     }
     if (failedCnt > 0) {
-      throw new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
+      throw new IOException("failed to read " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
     }
   }
 
