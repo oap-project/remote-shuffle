@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@
 package org.apache.spark.shuffle.daos
 
 import org.apache.spark.unsafe.array.ByteArrayMethods
-import org.apache.spark.util.collection.SizeTracker
 
 /**
  * Pair buffer for each partition.
@@ -44,7 +43,6 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
   // Basic growable array data structure. We use a single array of AnyRef to hold both the keys
   // and the values, so that we can sort them efficiently with KVArraySortDataFormat.
   private var capacity = initialCapacity
-  private var curSize = 0
   private var data = new Array[AnyRef](2 * initialCapacity)
 
   setSampleStat(stat)
@@ -57,7 +55,6 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
     }
     data(2 * curSize) = key.asInstanceOf[AnyRef]
     data(2 * curSize + 1) = value.asInstanceOf[AnyRef]
-    curSize += 1
     afterUpdate()
   }
 

@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.intel.oap</groupId>
         <artifactId>remote-shuffle-parent</artifactId>
-        <version>1.1.0</version>
+        <version>1.2.0</version>
     </parent>
     <artifactId>shuffle-daos</artifactId>
     <name>OAP Remote Shuffle Based on DAOS Object API</name>
@@ -205,7 +205,7 @@
         <dependency>
             <groupId>io.daos</groupId>
             <artifactId>daos-java</artifactId>
-            <version>1.1.4</version>
+            <version>1.2.2</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
