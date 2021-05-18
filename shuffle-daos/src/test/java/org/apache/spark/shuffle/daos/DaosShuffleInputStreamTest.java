@@ -23,10 +23,7 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.obj.DaosObjClient;
-import io.daos.obj.DaosObject;
-import io.daos.obj.DaosObjectId;
-import io.daos.obj.IODataDesc;
+import io.daos.obj.*;
 import io.netty.buffer.ByteBuf;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.spark.SparkConf;
@@ -155,7 +152,7 @@ public class DaosShuffleInputStreamTest {
 
   public void readFromOtherThreadCancelMultipleTimes(Map<String, AtomicInteger> maps,
                                                      int addWaitTimeMs, boolean fromOtherThread) throws Exception {
-    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
@@ -218,7 +215,7 @@ public class DaosShuffleInputStreamTest {
   }
 
   private void testReadFromOtherThreadCancelOnce(int pos, int desiredOffset, int addWaitMs) throws Exception {
-    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+    int waitDataTimeMs = (int)new SparkConf(false).get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
@@ -235,7 +232,7 @@ public class DaosShuffleInputStreamTest {
       method.invoke(desc);
 
       IODataDesc.Entry entry = desc.getEntry(0);
-      int offset = entry.getOffset();
+      long offset = entry.getOffset();
       if (String.valueOf(pos).equals(entry.getKey()) && offset == desiredOffset) {
         if (wait.get() == 0) {
           wait.incrementAndGet();
@@ -273,7 +270,7 @@ public class DaosShuffleInputStreamTest {
       method.invoke(desc);
 
       IODataDesc.Entry entry = desc.getEntry(0);
-      int offset = entry.getOffset();
+      long offset = entry.getOffset();
       if ("0".equals(entry.getKey()) && offset == 0) {
         latch.countDown();
         checkAndSetSize(desc, succeeded, 10*1024);
@@ -314,11 +311,12 @@ public class DaosShuffleInputStreamTest {
     objectConstructor.setAccessible(true);
     DaosObject daosObject = Mockito.spy(objectConstructor.newInstance(client, id));
 
-    Mockito.doAnswer(answer).when(daosObject).fetch(any(IODataDesc.class));
+    Mockito.doAnswer(answer).when(daosObject).fetch(any(IODataDescSync.class));
 
     BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
         new DaosReaderSync.ReadThreadFactory());
-    DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(), executors.nextExecutor());
+    DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(testConf),
+            executors.nextExecutor());
     LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;

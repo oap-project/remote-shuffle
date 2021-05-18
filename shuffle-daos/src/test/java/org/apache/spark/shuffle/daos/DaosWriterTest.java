@@ -23,10 +23,7 @@
 
 package org.apache.spark.shuffle.daos;
 
-import io.daos.obj.DaosObjClient;
-import io.daos.obj.DaosObject;
-import io.daos.obj.DaosObjectId;
-import io.daos.obj.IODataDesc;
+import io.daos.obj.*;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
@@ -67,7 +64,7 @@ public class DaosWriterTest {
 
   @Test
   public void testGetLensWithAllEmptyPartitions() {
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
@@ -93,9 +90,9 @@ public class DaosWriterTest {
     objectConstructor.setAccessible(true);
     DaosObject daosObject = Mockito.spy(objectConstructor.newInstance(client, id));
 
-    Mockito.doNothing().when(daosObject).update(any(IODataDesc.class));
+    Mockito.doNothing().when(daosObject).update(any(IODataDescSync.class));
 
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)
@@ -145,9 +142,9 @@ public class DaosWriterTest {
         method.invoke(desc);
       }
       return invoc;
-    }).when(daosObject).update(any(IODataDesc.class));
+    }).when(daosObject).update(any(IODataDescSync.class));
 
-    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig();
+    DaosWriter.WriterConfig writeConfig = new DaosWriter.WriterConfig(testConf);
     DaosWriterSync.WriteParam param = new DaosWriterSync.WriteParam();
     int numPart = 10;
     param.numPartitions(numPart)

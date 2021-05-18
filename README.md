@@ -1,12 +1,12 @@
+##### \* LEGAL NOTICE: Your use of this software and any required dependent software (the "Software Package") is subject to the terms and conditions of the software license agreements for the Software Package, which may also include notices, disclaimers, or license terms for third party or open source software included in or with the Software Package, and your use indicates your acceptance of all such terms. Please refer to the "TPP.txt" or other similarly-named text file included with the Software Package for additional details.
+
+##### \* Optimized Analytics Package for Spark* Platform is under Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
 # Remote Shuffle Plugins
 
 ## Online Documentation
 
-You can find the all the PMem Spill documents on the [project web page](https://oap-project.github.io/remote-shuffle/).
-
-## Contents
-- [Introduction](#introduction)
-- [User Guide](#userguide)
+You can find the all the Remote Shuffle documents on the [project web page](https://oap-project.github.io/remote-shuffle/).
 
 ## Introduction
 Remote Shuffle is a Spark* ShuffleManager plugin, shuffling data through a remote datastore, as opposed to vanilla Spark's local-disks.
@@ -20,18 +20,16 @@ There are two shuffle plugins in this project.
     Different from the above general plugin based on Hadoop Filesystem interface, this plugin bases on DAOS Object API.
     Thanks to DAOS Distribution Key and Attribute Key, we can improve performance by constructing shuffle output like
     below.
-    ![](./shuffle-daos/images/shuffle.png)
+    ![](./docs/image/shuffle.png)
 
-### Installation
-We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md) for more information. If you have finished [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md), you can find compiled OAP jars in `$HOME/miniconda2/envs/oapenv/oap_jars/`.
 
 ## Developer Guide
 ### Build and Deploy
 
 We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md) for more information. If you have finished [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md), you can find compiled remote shuffle jars under `$HOME/miniconda2/envs/oapenv/oap_jars`.
-Then just skip this section and jump to [User Guide](#user-guide).
+Then just skip this section and jump to [User Guide](#g1).
 
-Build using the following command in `OAP/remote-shuffle` folder. This file needs to be deployed on every compute node that runs Spark. Manually place it on all nodes or let resource manager do the work.
+Build using the following command in `remote-shuffle` folder. This file needs to be deployed on every compute node that runs Spark. Manually place it on all nodes or let resource manager do the work.
 
 ```
     mvn -DskipTests clean package 
@@ -230,6 +228,8 @@ differences here.
 
 ```
     spark.shuffle.manager                      org.apache.spark.shuffle.daos.DaosShuffleManager
+    spark.shuffle.daos.pool.uuid               <POOL UUID>
+    spark.shuffle.daos.container.uuid          <CONTAINER UUID> 
 ```
 
 ### Classpath
@@ -242,3 +242,33 @@ differences here.
         $HOME/miniconda2/envs/oapenv/oap_jars/hadoop-daos-<version>.jar
         $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-daos-<version>.jar
 ```
+
+### Configuration
+
+There are some configurations for tuning shuffle IO. You can find all of them from package,
+"org.apache.spark.shuffle.daos". Here are some of them.
+
+```
+    spark.shuffle.daos.io.async         true
+```
+This shuffle plugin supports both sync IO and async IO. The default is async IO. You can change it by setting this
+value to "false". Most of other config items are valid for both sync IO and async IO. For sync or async only config
+items, you can find them from either its doc or name itself.
+
+
+```
+    spark.shuffle.remove.shuffle.data	true
+```
+All shuffled data is written to DAOS container. They should be deleted after job is done to save space. If you want
+to review the shuffled data after job, you can set it to "false".
+
+```
+    spark.shuffle.daos.read.wait.ms	5000
+    spark.shuffle.daos.write.wait.ms	5000
+```
+They are maximum milliseconds to wait before throwing TimedOutException.
+
+```
+    spark.shuffle.daos.write.buffer	800m
+```
+Total in-memory buffer size of each map task. You can tune it for you environment.

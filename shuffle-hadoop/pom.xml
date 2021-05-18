@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.intel.oap</groupId>
     <artifactId>remote-shuffle-parent</artifactId>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
   </parent>
 
   <artifactId>shuffle-hadoop</artifactId>
@@ -81,12 +81,12 @@
     <dependency>
       <groupId>org.mock-server</groupId>
       <artifactId>mockserver-netty</artifactId>
-      <version>5.11.0</version>
+      <version>5.11.2</version>
     </dependency>
     <dependency>
       <groupId>org.mock-server</groupId>
       <artifactId>mockserver-client-java</artifactId>
-      <version>5.11.0</version>
+      <version>5.11.2</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>

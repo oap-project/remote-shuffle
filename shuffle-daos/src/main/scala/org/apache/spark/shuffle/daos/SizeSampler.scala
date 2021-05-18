@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,8 @@ private[spark] trait SizeSampler {
 
   private var stat: SampleStat = _
 
+  protected var curSize = 0
+
   protected def setSampleStat(stat: SampleStat): Unit = {
     this.stat = stat
   }
@@ -63,11 +65,14 @@ private[spark] trait SizeSampler {
 
   protected def afterUpdate(): Unit = {
     numUpdates += 1
+    curSize += 1
     stat.incNumUpdates
     if (stat.needSample) {
       takeSample()
     }
   }
+
+  def numOfRecords: Int = curSize
 
   /**
    * Take a new sample of the current collection's size.

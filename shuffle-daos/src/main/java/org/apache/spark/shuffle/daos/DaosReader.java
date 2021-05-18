@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,6 +85,11 @@ public interface DaosReader {
   Tuple2<Long, Integer> curMapReduceId();
 
   /**
+   * find next mapReduce Id
+   */
+  void nextMapReduceId();
+
+  /**
    * get available buffer after iterating current buffer, next buffer in current desc and next desc.
    *
    * @return buffer with data read from DAOS
@@ -128,26 +133,30 @@ public interface DaosReader {
     private int waitDataTimeMs;
     private int waitTimeoutTimes;
     private boolean fromOtherThread;
+    private SparkConf conf;
 
     private static final Logger log = LoggerFactory.getLogger(ReaderConfig.class);
 
-    public ReaderConfig() {
-      this(true);
+    public ReaderConfig(SparkConf conf) {
+      this(conf, true);
     }
 
-    private ReaderConfig(boolean load) {
+    private ReaderConfig(SparkConf conf, boolean load) {
+      this.conf = conf;
       if (load) {
         initialize();
       }
     }
 
     private void initialize() {
-      SparkConf conf = SparkEnv.get().conf();
+      if (conf == null) {
+        this.conf = SparkEnv.get().conf();
+      }
       minReadSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_MINIMUM_SIZE()) * 1024;
       this.maxBytesInFlight = -1L;
       this.maxMem = -1L;
       this.readBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_BATCH_SIZE());
-      this.waitDataTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_MS());
+      this.waitDataTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
       this.waitTimeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES());
       this.fromOtherThread = (boolean)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_FROM_OTHER_THREAD());
       if (log.isDebugEnabled()) {
@@ -162,7 +171,7 @@ public interface DaosReader {
     }
 
     public ReaderConfig copy(long maxBytesInFlight, long maxMem) {
-      ReaderConfig rc = new ReaderConfig(false);
+      ReaderConfig rc = new ReaderConfig(conf, false);
       rc.maxMem = maxMem;
       rc.minReadSize = minReadSize;
       rc.readBatchSize = readBatchSize;

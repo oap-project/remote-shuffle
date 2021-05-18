@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2018-2020 Intel Corporation.
+ * (C) Copyright 2018-2021 Intel Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -147,12 +147,10 @@ package object daos {
       .booleanConf
       .createWithDefault(true)
 
-  /* =====configs below for DAOS synchronous API===== */
-
   val SHUFFLE_DAOS_READ_THREADS =
     ConfigBuilder("spark.shuffle.daos.read.threads")
       .doc("number of threads for each executor to read shuffle data concurrently. -1 means use number of executor " +
-        "cores.")
+        "cores. sync IO only.")
       .version("3.0.0")
       .intConf
       .createWithDefault(1)
@@ -160,14 +158,23 @@ package object daos {
   val SHUFFLE_DAOS_WRITE_THREADS =
     ConfigBuilder("spark.shuffle.daos.write.threads")
       .doc("number of threads for each executor to write shuffle data concurrently. -1 means use number of executor " +
-        "cores.")
+        "cores. sync IO only.")
       .version("3.0.0")
       .intConf
       .createWithDefault(1)
 
+  val SHUFFLE_DAOS_ASYNC_WRITE_BATCH_SIZE =
+    ConfigBuilder("spark.shuffle.daos.async.write.batch")
+      .doc("number of async write before flush")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v > 0,
+        s"async write batch size must be positive")
+      .createWithDefault(1)
+
   val SHUFFLE_DAOS_READ_BATCH_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.batch")
-      .doc("number of read tasks to submit at most at each time")
+      .doc("number of read tasks to submit at most at each time. sync IO only.")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
@@ -176,35 +183,35 @@ package object daos {
 
   val SHUFFLE_DAOS_WRITE_SUBMITTED_LIMIT =
     ConfigBuilder("spark.shuffle.daos.write.submitted.limit")
-      .doc("limit of number of write tasks to submit")
+      .doc("limit of number of write tasks to submit. sync IO only.")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
         s"limit of submitted task must be positive")
       .createWithDefault(20)
 
-  val SHUFFLE_DAOS_READ_WAIT_DATA_MS =
-    ConfigBuilder("spark.shuffle.daos.read.waitdata.ms")
-      .doc("number of milliseconds to wait data being read from other thread before timed out")
+  val SHUFFLE_DAOS_READ_WAIT_MS =
+    ConfigBuilder("spark.shuffle.daos.read.wait.ms")
+      .doc("number of milliseconds to wait data being read before timed out")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(100)
+      .createWithDefault(5000)
 
   val SHUFFLE_DAOS_WRITE_WAIT_MS =
-    ConfigBuilder("spark.shuffle.daos.write.waitdata.ms")
-      .doc("number of milliseconds to wait data being written in other thread before timed out")
+    ConfigBuilder("spark.shuffle.daos.write.wait.ms")
+      .doc("number of milliseconds to wait data being written before timed out")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(100)
+      .createWithDefault(5000)
 
   val SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES =
     ConfigBuilder("spark.shuffle.daos.read.wait.timeout.times")
       .doc("number of wait timeout (spark.shuffle.daos.read.waitdata.ms) after which shuffle read task reads data " +
-        "by itself instead of dedicated read thread")
+        "by itself instead of dedicated read thread. sync IO only.")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
@@ -213,7 +220,8 @@ package object daos {
 
   val SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES =
     ConfigBuilder("spark.shuffle.daos.write.wait.timeout.times")
-      .doc("number of wait timeout (spark.shuffle.daos.write.waitdata.ms) after which shuffle write task fails")
+      .doc("number of wait timeout (spark.shuffle.daos.write.waitdata.ms) after which shuffle write task fails." +
+        "sync IO only.")
       .version("3.0.0")
       .intConf
       .checkValue(v => v > 0,
@@ -222,15 +230,33 @@ package object daos {
 
   val SHUFFLE_DAOS_READ_FROM_OTHER_THREAD =
     ConfigBuilder("spark.shuffle.daos.read.from.other.threads")
-      .doc("whether read shuffled data from other threads or not. true by default")
+      .doc("whether read shuffled data from other threads or not. true by default. sync IO only.")
       .version("3.0.0")
       .booleanConf
       .createWithDefault(true)
 
   val SHUFFLE_DAOS_WRITE_IN_OTHER_THREAD =
     ConfigBuilder("spark.shuffle.daos.write.in.other.threads")
-      .doc("whether write shuffled data in other threads or not. true by default")
+      .doc("whether write shuffled data in other threads or not. true by default. sync IO only.")
       .version("3.0.0")
       .booleanConf
       .createWithDefault(true)
+
+  val SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL =
+    ConfigBuilder("spark.shuffle.daos.write.partition.move.interval")
+      .doc("move partition at every this interval (number of records). 1000 records by default.")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 10, "partition move interval should be at least 10.")
+      .createWithDefault(1000)
+
+  val SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL =
+    ConfigBuilder("spark.shuffle.daos.write.total.interval")
+      .doc("check total size of partitions and write some partitions at every this interval (number of records)." +
+        " This value should be no less than spark.shuffle.daos.write.partition.move.interval." +
+        " 10000 records by default.")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 100, "total interval should be bigger than 100.")
+      .createWithDefault(10000)
 }

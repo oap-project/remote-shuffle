@@ -1,34 +1,32 @@
-# Remote Shuffle Based on Hadoop Filesystem
-
-## Online Documentation
-
-You can find the all the PMem Spill documents on the [project web page](https://oap-project.github.io/remote-shuffle/).
-
-## Contents
-- [Introduction](#introduction)
-- [User Guide](#userguide)
+# Remote Shuffle Plugins
 
 ## Introduction
-Remote Shuffle is a Spark* ShuffleManager plugin, shuffling data through a remote Hadoop-compatible file system, as opposed to vanilla Spark's local-disks.
+Remote Shuffle is a Spark* ShuffleManager plugin, shuffling data through a remote datastore, as opposed to vanilla Spark's local-disks.
 
 This is an essential part of enabling Spark on disaggregated compute and storage architecture.
 
+There are two shuffle plugins in this project.
+- shuffle-hadoop, A remote shuffle plugin based Hadoop filesystem.
+    This plugin can work with any remote filesystems compatible with Hadoop, like HDFS, AWS S3 and [DAOS](https://github.com/daos-stack/daos).
+- shuffle-daos
+    Different from the above general plugin based on Hadoop Filesystem interface, this plugin bases on DAOS Object API.
+    Thanks to DAOS Distribution Key and Attribute Key, we can improve performance by constructing shuffle output like
+    below.
+    ![](./image/shuffle.png)
 
-### Installation
-We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md) for more information. If you have finished [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md), you can find compiled OAP jars in `$HOME/miniconda2/envs/oapenv/oap_jars/`.
 
 ## Developer Guide
 ### Build and Deploy
 
-We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md) for more information. If you have finished [OAP-Installation-Guide](./docs/OAP-Installation-Guide.md), you can find compiled remote shuffle jars under `$HOME/miniconda2/envs/oapenv/oap_jars`.
-Then just skip this section and jump to [User Guide](#user-guide).
+We have provided a Conda package which will automatically install dependencies needed by OAP, you can refer to [OAP-Installation-Guide](./OAP-Installation-Guide.md) for more information. If you have finished [OAP-Installation-Guide](./OAP-Installation-Guide.md), you can find compiled remote shuffle jars under `$HOME/miniconda2/envs/oapenv/oap_jars`.
+Then just skip this section and jump to [User Guide](#g1).
 
-Build this module using the following command in `OAP/oap-shuffle/remote-shuffle` folder. This file needs to be deployed on every compute node that runs Spark. Manually place it on all nodes or let resource manager do the work.
+Build using the following command in `remote-shuffle` folder. This file needs to be deployed on every compute node that runs Spark. Manually place it on all nodes or let resource manager do the work.
 
 ```
     mvn -DskipTests clean package 
 ```
-## User Guide
+## <a name="g1"></a>User Guide (shuffle-hadoop)
 ### Enable Remote Shuffle
 
 Add the `.jar` files to the classpath of Spark driver and executors: Put the
@@ -211,4 +209,26 @@ shuffle reader:
 
     shuffle storage      daos://default:1
     shuffle folder:      /tmp/shuffle                                                      
+```
+
+## User Guide (shuffle-daos)
+
+Most of [User Guide (shuffle-hadoop)](#g1) can be applied to shuffle-daos. We'll not repeat them here. Just show
+differences here.
+
+### Shuffle Manager
+
+```
+    spark.shuffle.manager                      org.apache.spark.shuffle.daos.DaosShuffleManager
+```
+
+### Classpath
+    
+```
+    spark.executor.extraClassPath          $HOME/miniconda2/envs/oapenv/oap_jars/daos-java-<version>.jar
+        $HOME/miniconda2/envs/oapenv/oap_jars/hadoop-daos-<version>.jar
+        $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-daos-<version>.jar
+    spark.driver.extraClassPath            $HOME/miniconda2/envs/oapenv/oap_jars/daos-java-<version>.jar
+        $HOME/miniconda2/envs/oapenv/oap_jars/hadoop-daos-<version>.jar
+        $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-daos-<version>.jar
 ```
