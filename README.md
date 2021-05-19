@@ -43,8 +43,8 @@ following configurations in spark-defaults.conf or Spark submit command line arg
 Note: For DAOS users, DAOS Hadoop/Java API jars should also be included in the classpath as we leverage DAOS Hadoop filesystem.
     
 ```
-    spark.executor.extraClassPath          $HOME/miniconda2/envs/oapenv/oap_jars/remote-shuffle-<version>.jar
-    spark.driver.extraClassPath            $HOME/miniconda2/envs/oapenv/oap_jars/remote-shuffle-<version>.jar
+    spark.executor.extraClassPath          $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-hadoop-<version>.jar
+    spark.driver.extraClassPath            $HOME/miniconda2/envs/oapenv/oap_jars/shuffle-hadoop-<version>.jar
 ```
 
 Enable the remote shuffle manager and specify the Hadoop storage system URI holding shuffle data.
