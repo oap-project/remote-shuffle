@@ -21,7 +21,6 @@ import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration._
 import scala.ref.WeakReference
 
-import org.scalatest.Matchers
 import org.scalatest.concurrent.Eventually
 
 import org.apache.spark._
@@ -38,8 +37,7 @@ import org.apache.spark.util.CompletionIterator
   */
 class RemoteAppendOnlyMapSuite extends SparkFunSuite
     with LocalSparkContext
-    with Eventually
-    with Matchers{
+    with Eventually {
   import TestUtils.{assertNotSpilled, assertSpilled}
 
   private val allCompressionCodecs = CompressionCodec.ALL_COMPRESSION_CODECS
@@ -250,7 +248,7 @@ class RemoteAppendOnlyMapSuite extends SparkFunSuite
   }
 
   test("spilling with compression and encryption") {
-    testSimpleSpilling(Some(CompressionCodec.DEFAULT_COMPRESSION_CODEC), encrypt = true)
+    testSimpleSpilling(Some(CompressionCodec.FALLBACK_COMPRESSION_CODEC), encrypt = true)
   }
 
   /**

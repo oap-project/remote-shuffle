@@ -22,9 +22,8 @@ import java.util.{HashMap => JHashMap, Map => JMap}
 import scala.collection.JavaConverters._
 import scala.concurrent.Future
 import scala.reflect.ClassTag
-
 import com.codahale.metrics.{Metric, MetricSet}
-
+import org.apache.spark.internal.Logging
 import org.apache.spark.{SecurityManager, SparkConf, SparkEnv}
 import org.apache.spark.network.{BlockDataManager, BlockTransferService, TransportContext}
 import org.apache.spark.network.buffer.ManagedBuffer
@@ -46,7 +45,7 @@ private[spark] class RemoteShuffleTransferService(
     bindAddress: String,
     override val hostName: String,
     _port: Int,
-    numCores: Int) extends BlockTransferService {
+    numCores: Int) extends BlockTransferService with Logging {
 
   // TODO: Don't use Java serialization, use a more cross-version compatible serialization format.
   private val serializer = new JavaSerializer(conf)

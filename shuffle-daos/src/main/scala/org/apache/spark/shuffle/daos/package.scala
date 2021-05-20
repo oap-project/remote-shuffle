@@ -170,7 +170,7 @@ package object daos {
       .intConf
       .checkValue(v => v > 0,
         s"async write batch size must be positive")
-      .createWithDefault(1)
+      .createWithDefault(30)
 
   val SHUFFLE_DAOS_READ_BATCH_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.batch")
