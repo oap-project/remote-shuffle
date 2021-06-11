@@ -136,20 +136,6 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
 
   override def getReader[K, C](
       handle: ShuffleHandle,
-      startPartition: Int,
-      endPartition: Int,
-      context: TaskContext,
-      metrics: ShuffleReadMetricsReporter): DaosShuffleReader[K, C]
-    = {
-    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(
-      handle.shuffleId, startPartition, endPartition)
-    new DaosShuffleReader(handle.asInstanceOf[BaseShuffleHandle[K, _, C]], blocksByAddress, context,
-      metrics, daosShuffleIO, SparkEnv.get.serializerManager,
-      shouldBatchFetch = canUseBatchFetch(startPartition, endPartition, context))
-  }
-
-  override def getReaderForRange[K, C](
-      handle: ShuffleHandle,
       startMapIndex: Int,
       endMapIndex: Int,
       startPartition: Int,
@@ -157,7 +143,7 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): DaosShuffleReader[K, C]
     = {
-    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByRange(
+    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(
       handle.shuffleId, startMapIndex, endMapIndex, startPartition, endPartition)
     new DaosShuffleReader(handle.asInstanceOf[BaseShuffleHandle[K, _, C]], blocksByAddress, context,
       metrics, daosShuffleIO, SparkEnv.get.serializerManager,

@@ -128,19 +128,19 @@ public class DaosReaderAsyncTest {
   public void testTwoEntries() throws Exception {
     LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
     partSizeMap = new LinkedHashMap<>();
-    long mapIds[] = new long[] {12345, 12346};
+    long[] mapIds = new long[] {12345, 12346};
     int reduceId = 6789;
-    long lens[] = new long[] {2 * 1024 * 1024, 1023};
+    long[] lens = new long[] {2 * 1024 * 1024, 1023};
     int shuffleId = 1000;
     long eqHandle = 1111L;
-    IOSimpleDDAsync descs[] = new IOSimpleDDAsync[] {Mockito.mock(IOSimpleDDAsync.class),
+    IOSimpleDDAsync[] descs = new IOSimpleDDAsync[] {Mockito.mock(IOSimpleDDAsync.class),
         Mockito.mock(IOSimpleDDAsync.class)};
-    IOSimpleDDAsync.AsyncEntry entries[] = new IOSimpleDDAsync.AsyncEntry[] {
+    IOSimpleDDAsync.AsyncEntry[] entries = new IOSimpleDDAsync.AsyncEntry[] {
         Mockito.mock(IOSimpleDDAsync.AsyncEntry.class),
         Mockito.mock(IOSimpleDDAsync.AsyncEntry.class)
     };
-    ByteBuf bufs[] = new ByteBuf[] {Mockito.mock(ByteBuf.class), Mockito.mock(ByteBuf.class)};
-    boolean readAlready[] = new boolean[] {false, false};
+    ByteBuf[] bufs = new ByteBuf[] {Mockito.mock(ByteBuf.class), Mockito.mock(ByteBuf.class)};
+    boolean[] readAlready = new boolean[] {false, false};
     for (int i = 0; i < 2; i++) {
       Mockito.when(entries[i].getFetchedData()).thenReturn(bufs[i]);
       Mockito.when(entries[i].getKey()).thenReturn(String.valueOf(mapIds[i]));
@@ -162,7 +162,7 @@ public class DaosReaderAsyncTest {
     }
     Mockito.when(eq.getEqWrapperHdl()).thenReturn(eqHandle);
 
-    int times[] = new int[] {0};
+    int[] times = new int[] {0};
     Mockito.doAnswer(new Answer() {
       @Override
       public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
@@ -176,7 +176,7 @@ public class DaosReaderAsyncTest {
       }
     }).when(eq).pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
 
-    int times2[] = new int[] {0};
+    int[] times2 = new int[] {0};
     Mockito.doAnswer(new Answer() {
       @Override
       public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
