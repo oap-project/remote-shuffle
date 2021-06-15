@@ -90,25 +90,6 @@ private[spark] class RemoteShuffleManager(private val conf: SparkConf) extends S
     */
   override def getReader[K, C](
       handle: ShuffleHandle,
-      startPartition: Int,
-      endPartition: Int,
-      context: TaskContext,
-      metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
-
-    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(
-      handle.shuffleId, startPartition, endPartition)
-
-    new RemoteShuffleReader(
-      handle.asInstanceOf[BaseShuffleHandle[K, _, C]],
-      shuffleBlockResolver,
-      blocksByAddress,
-      context,
-      metrics,
-      shouldBatchFetch = canUseBatchFetch(startPartition, endPartition, context))
-  }
-
-  override def getReaderForRange[K, C](
-      handle: ShuffleHandle,
       startMapIndex: Int,
       endMapIndex: Int,
       startPartition: Int,
@@ -116,7 +97,7 @@ private[spark] class RemoteShuffleManager(private val conf: SparkConf) extends S
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
 
-    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByRange(
+    val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(
       handle.shuffleId, startMapIndex, endMapIndex, startPartition, endPartition)
 
     new RemoteShuffleReader(

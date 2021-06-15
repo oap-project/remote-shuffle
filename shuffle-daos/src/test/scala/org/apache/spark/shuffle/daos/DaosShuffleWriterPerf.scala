@@ -26,7 +26,6 @@ package org.apache.spark.shuffle.daos
 import org.mockito.{Mock, Mockito, MockitoAnnotations}
 import org.mockito.Answers._
 import org.mockito.Mockito.{mock, when}
-import org.scalatest.Matchers
 import scala.collection.mutable
 import scala.util.Random
 
@@ -36,7 +35,7 @@ import org.apache.spark.serializer.JavaSerializer
 import org.apache.spark.shuffle.BaseShuffleHandle
 import org.apache.spark.util.Utils
 
-class DaosShuffleWriterPerf extends SparkFunSuite with SharedSparkContext with Matchers {
+class DaosShuffleWriterPerf extends SparkFunSuite with SharedSparkContext {
 
   @Mock(answer = RETURNS_SMART_NULLS)
   private var shuffleIO: DaosShuffleIO = _
