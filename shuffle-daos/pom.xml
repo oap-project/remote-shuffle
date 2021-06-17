@@ -7,13 +7,14 @@
     <parent>
         <groupId>com.intel.oap</groupId>
         <artifactId>remote-shuffle-parent</artifactId>
-        <version>1.2.1</version>
+        <version>1.1.2-SNAPSHOT</version>
     </parent>
-    <artifactId>shuffle-daos</artifactId>
+    <artifactId>remote-shuffle-daos</artifactId>
     <name>OAP Remote Shuffle Based on DAOS Object API</name>
     <packaging>jar</packaging>
 
     <build>
+        <finalName>${project.artifactId}-${project.version}</finalName>
         <plugins>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
