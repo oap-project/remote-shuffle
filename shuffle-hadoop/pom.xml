@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.intel.oap</groupId>
     <artifactId>remote-shuffle-parent</artifactId>
-    <version>1.1.2-SNAPSHOT</version>
+    <version>1.1.1</version>
   </parent>
 
   <artifactId>remote-shuffle-hadoop</artifactId>
@@ -103,7 +103,7 @@
   </dependencies>
 
   <build>
-    <finalName>${project.artifactId}-${project.version}</finalName>
+    <finalName>${project.artifactId}-${project.version}-with-spark-${spark.version}</finalName>
     <plugins>
       <plugin>
         <groupId>net.alchim31.maven</groupId>
