@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -221,36 +222,54 @@ public interface DaosWriter {
       roundSize += len;
     }
 
-    public IODataDescSync createUpdateDesc() throws IOException {
+    /**
+     * create list of {@link IODataDescSync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
+     * @return list of {@link IODataDescSync}
+     * @throws IOException
+     */
+    public List<IODataDescSync> createUpdateDescs() throws IOException {
       if (roundSize == 0 || bufList.isEmpty()) {
-        return null;
+        return Collections.emptyList();
       }
+      List<IODataDescSync> descList = new ArrayList<>(bufList.size());
       long bufSize = 0;
-      IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
       for (ByteBuf buf : bufList) {
-        desc.addEntryForUpdate(mapId, totalSize, buf);
+        IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
+        desc.addEntryForUpdate(mapId, totalSize + bufSize, buf);
         bufSize += buf.readableBytes();
+        descList.add(desc);
       }
       if (roundSize != bufSize) {
         throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
       }
-      return desc;
+      return descList;
     }
 
-    public IOSimpleDDAsync createUpdateDescAsync(long eqHandle) throws IOException {
+    /**
+     * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
+     * @return list of {@link IOSimpleDDAsync}
+     * @throws IOException
+     */
+    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
       if (roundSize == 0 || bufList.isEmpty()) {
-        return null;
+        return Collections.emptyList();
       }
+      List<IOSimpleDDAsync> descList = new ArrayList<>();
       long bufSize = 0;
-      IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
       for (ByteBuf buf : bufList) {
-        desc.addEntryForUpdate(mapId, totalSize, buf);
+        IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
+        desc.addEntryForUpdate(mapId, totalSize + bufSize, buf);
         bufSize += buf.readableBytes();
+        descList.add(desc);
       }
       if (roundSize != bufSize) {
         throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
       }
-      return desc;
+      return descList;
     }
 
     public void reset(boolean release) {
