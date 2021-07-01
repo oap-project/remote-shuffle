@@ -54,22 +54,24 @@ public class DaosWriterAsync extends DaosWriterBase {
     if (buffer == null) {
       return;
     }
-    IOSimpleDDAsync desc = buffer.createUpdateDescAsync(eq.getEqWrapperHdl());
-    if (desc == null) {
+    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl());
+    if (descList.isEmpty()) {
       buffer.reset(true);
       return;
     }
-    DaosEventQueue.Event event = acquireEvent();
-    descSet.add(desc);
-    desc.setEvent(event);
-    try {
-      object.updateAsync(desc);
-      buffer.reset(false);
-    } catch (Exception e) {
-      desc.release();
-      descSet.remove(desc);
-      throw e;
+    for (IOSimpleDDAsync desc : descList) {
+      DaosEventQueue.Event event = acquireEvent();
+      descSet.add(desc);
+      desc.setEvent(event);
+      try {
+        object.updateAsync(desc);
+      } catch (Exception e) {
+        desc.release();
+        descSet.remove(desc);
+        throw e;
+      }
     }
+    buffer.reset(false);
     if (descSet.size() >= config.getAsyncWriteBatchSize()) {
       flushAll();
     }
@@ -103,20 +105,19 @@ public class DaosWriterAsync extends DaosWriterBase {
   }
 
   private void verifyCompleted() throws IOException {
-    IOSimpleDDAsync failed = null;
+    String failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {
       if (descSet.contains(attachment)) {
-        attachment.release();
         descSet.remove(attachment);
         IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
-        if (desc.isSucceeded()) {
-          continue;
+        if (!desc.isSucceeded()) {
+          failedCnt++;
+          if (failed == null) {
+            failed = desc.toString(); // release after toString so that akey info is captured
+          }
         }
-        failedCnt++;
-        if (failed == null) {
-          failed = desc;
-        }
+        desc.release();
       }
     }
     if (failedCnt > 0) {

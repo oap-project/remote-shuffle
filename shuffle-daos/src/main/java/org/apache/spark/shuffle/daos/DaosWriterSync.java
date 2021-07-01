@@ -252,20 +252,19 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       if (buffer == null) {
         return;
       }
-      IODataDescSync desc = buffer.createUpdateDesc();
-      if (desc == null) {
-        return;
+      List<IODataDescSync> descList = buffer.createUpdateDescs();
+      for (IODataDescSync desc : descList) {
+        totalWriteTimes++;
+        if (config.isWarnSmallWrite() && buffer.getRoundSize() < config.getMinSize()) {
+          LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
+              buffer.getRoundSize(), param.getShuffleId(), mapId, partitionId);
+        }
+        if (executor == null) { // run write by self
+          runBySelf(desc, buffer);
+          continue;
+        }
+        submitToOtherThreads(desc, buffer);
       }
-      totalWriteTimes++;
-      if (config.isWarnSmallWrite() && buffer.getRoundSize() < config.getMinSize()) {
-        LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
-            buffer.getRoundSize(), param.getShuffleId(), mapId, partitionId);
-      }
-      if (executor == null) { // run write by self
-        runBySelf(desc, buffer);
-        return;
-      }
-      submitToOtherThreads(desc, buffer);
     }
 
     @Override

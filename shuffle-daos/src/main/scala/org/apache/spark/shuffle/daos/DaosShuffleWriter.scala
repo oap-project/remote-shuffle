@@ -23,10 +23,11 @@
 
 package org.apache.spark.shuffle.daos
 
-import org.apache.spark.{SparkEnv, TaskContext}
+import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.scheduler.MapStatus
 import org.apache.spark.shuffle.{BaseShuffleHandle, ShuffleWriter}
+import org.apache.spark.storage.BlockManagerId
 
 class DaosShuffleWriter[K, V, C](
     handle: BaseShuffleHandle[K, V, C],
@@ -43,7 +44,7 @@ class DaosShuffleWriter[K, V, C](
 
   private var mapStatus: MapStatus = null
 
-  private val blockManager = SparkEnv.get.blockManager
+  private val dummyBlkId = BlockManagerId("-1", "dummy-host", 1024)
 
   override def write(records: Iterator[Product2[K, V]]): Unit = {
 //    val start = System.nanoTime()
@@ -74,7 +75,7 @@ class DaosShuffleWriter[K, V, C](
 
     // logInfo(context.taskAttemptId() + " all time: " + (System.nanoTime() - start)/1000000)
 
-    mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
+    mapStatus = MapStatus(dummyBlkId, partitionLengths, mapId)
   }
 
   override def stop(success: Boolean): Option[MapStatus] = {

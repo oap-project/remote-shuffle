@@ -288,16 +288,19 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    private def writeFromHead: Unit = {
+    private def writeFromHead: Long = {
       var buffer = head.next
       var count = 0
+      var totalWritten = 0L
       while (buffer != end && count < totalPartRatio) {
+        totalWritten += buffer.estimatedSize
         buffer.writeAndFlush
         val emptyBuffer = buffer
         buffer = buffer.next
         moveToLast(emptyBuffer)
         count += 1
       }
+      totalWritten
     }
 
     private def maybeWriteTotal(): Unit = {
@@ -345,7 +348,9 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    def spill(size: Long, trigger: MemoryConsumer): Long = ???
+    def spill(size: Long, trigger: MemoryConsumer): Long = {
+      writeFromHead
+    }
   }
 
   private[daos] trait SizeAware[K, C] {
@@ -509,12 +514,6 @@ class MapPartitionsWriter[K, V, C](
 
     def iterator(): Iterator[(K, C)] = {
       buffer.iterator()
-    }
-
-    def spill(size: Long, trigger: MemoryConsumer): Long = {
-      val curSize = _estSize
-      writeAndFlush
-      curSize
     }
 
     def pairsWriter: PartitionOutput = {
