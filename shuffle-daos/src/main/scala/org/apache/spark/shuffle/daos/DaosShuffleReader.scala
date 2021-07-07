@@ -58,8 +58,7 @@ class DaosShuffleReader[K, C](
       conf.get(config.SHUFFLE_DETECT_CORRUPT),
       conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
       readMetrics,
-      daosReader,
-      shouldBatchFetch
+      daosReader
     ).toCompletionIterator
 
     val serializerInstance = dep.serializer.newInstance()

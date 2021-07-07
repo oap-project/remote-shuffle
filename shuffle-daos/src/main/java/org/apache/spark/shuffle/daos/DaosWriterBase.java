@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 public abstract class DaosWriterBase implements DaosWriter {
@@ -35,6 +36,10 @@ public abstract class DaosWriterBase implements DaosWriter {
   protected DaosObject object;
 
   protected String mapId;
+
+  protected boolean needSpill;
+
+  protected boolean allConsumed;
 
   protected WriteParam param;
 
@@ -57,7 +62,7 @@ public abstract class DaosWriterBase implements DaosWriter {
   protected NativeBuffer getNativeBuffer(int partitionId) {
     NativeBuffer buffer = partitionBufArray[partitionId];
     if (buffer == null) {
-      buffer = new NativeBuffer(object, mapId, partitionId, config.getBufferSize());
+      buffer = new NativeBuffer(object, mapId, partitionId, config.getBufferSize(), needSpill);
       partitionBufArray[partitionId] = buffer;
     }
     return buffer;
@@ -76,6 +81,59 @@ public abstract class DaosWriterBase implements DaosWriter {
   @Override
   public void write(int partitionId, byte[] array, int offset, int len) {
     getNativeBuffer(partitionId).write(array, offset, len);
+  }
+
+  @Override
+  public void setNeedSpill(boolean needSpill) {
+    this.needSpill = needSpill;
+  }
+
+  @Override
+  public void setMerged(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return;
+    }
+    buffer.resetSeq();
+    buffer.setNeedSpill(false);
+  }
+
+  @Override
+  public void setFinal() {
+    this.allConsumed = true;
+  }
+
+  @Override
+  public boolean isSpilled(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return false;
+    }
+    return buffer.isSpilled();
+  }
+
+  @Override
+  public List<SpillInfo> getSpillInfo(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return null;
+    }
+    return buffer.getSpillInfo();
+  }
+
+  @Override
+  public void resetMetrics(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return;
+    }
+    // make sure all pending writes done, like async write
+    try {
+      flushAll();
+    } catch (IOException e) {
+      throw new IllegalStateException("failed to flush all existing writes", e);
+    }
+    buffer.resetMetrics();
   }
 
   @Override

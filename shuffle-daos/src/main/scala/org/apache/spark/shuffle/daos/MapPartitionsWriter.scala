@@ -24,20 +24,22 @@
 package org.apache.spark.shuffle.daos
 
 import java.util.Comparator
-
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
+import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
+
+import MapPartitionsWriter._
 
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
     context: TaskContext,
+    shuffleIO: DaosShuffleIO,
     aggregator: Option[Aggregator[K, V, C]] = None,
     partitioner: Option[Partitioner] = None,
     ordering: Option[Ordering[K]] = None,
-    serializer: Serializer = SparkEnv.get.serializer,
-    shuffleIO: DaosShuffleIO) extends Logging {
+    serializer: Serializer = SparkEnv.get.serializer) extends Logging {
 
   private val conf = SparkEnv.get.conf
 
@@ -50,10 +52,6 @@ class MapPartitionsWriter[K, V, C](
   private val serializerManager = SparkEnv.get.serializerManager
   private val serInstance = serializer.newInstance()
 
-  private val daosWriter = shuffleIO.getDaosWriter(
-    numPartitions,
-    shuffleId,
-    context.taskAttemptId())
   private val writeMetrics = context.taskMetrics().shuffleWriteMetrics
 
   /* key comparator if map-side combiner is defined */
@@ -72,11 +70,14 @@ class MapPartitionsWriter[K, V, C](
   }
 
   // buffer by partition
-  @volatile var writeBuffer = new PartitionsBuffer[K, C](
+  @volatile var writeBuffer = new PartitionsBuffer(
+    shuffleId,
     numPartitions,
+    aggregator,
     comparator,
     conf,
-    context.taskMemoryManager())
+    context.taskMemoryManager(),
+    shuffleIO)
 
   private[this] var _elementsRead = 0
 
@@ -109,19 +110,18 @@ class MapPartitionsWriter[K, V, C](
         writeBuffer.insert(getPartition(kv._1), kv._1, kv._2.asInstanceOf[C])
       }
     }
-    // logInfo(context.taskAttemptId() + " insert time: " + (System.nanoTime() - start)/1000000)
   }
 
   def commitAll: Array[Long] = {
     writeBuffer.flushAll
     writeBuffer.close
-    daosWriter.flushAll()
-    daosWriter.getPartitionLens(numPartitions)
+    writeBuffer.daosWriter.flushAll()
+    writeBuffer.daosWriter.getPartitionLens(numPartitions)
   }
 
   def close: Unit = {
     // serialize rest of records
-    daosWriter.close
+    writeBuffer.daosWriter.close
   }
 
   protected def addElementsRead(): Unit = { _elementsRead += 1 }
@@ -134,12 +134,14 @@ class MapPartitionsWriter[K, V, C](
    * @tparam K
    * @tparam C
    */
-  private[daos] class PartitionsBuffer[K, C](
+  private[daos] class PartitionsBuffer(
+      val shuffleId: Int,
       numPartitions: Int,
+      val aggregator: Option[Aggregator[K, V, C]],
       val keyComparator: Option[Comparator[K]],
       val conf: SparkConf,
-      val taskMemManager: TaskMemoryManager) extends MemoryConsumer(taskMemManager) {
-    private val partBufferThreshold = conf.get(SHUFFLE_DAOS_WRITE_PARTITION_BUFFER_SIZE).toInt * 1024
+      val taskMemManager: TaskMemoryManager,
+      val shuffleIO: DaosShuffleIO) extends MemoryConsumer(taskMemManager) {
     private val totalBufferThreshold = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_SIZE).toInt * 1024 * 1024
     private val totalBufferInitial = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE).toInt * 1024 * 1024
     private val forceWritePct = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT)
@@ -149,8 +151,16 @@ class MapPartitionsWriter[K, V, C](
     private val totalPartRatio = totalWriteInterval / partMoveInterval
     private[daos] val sampleStat = new SampleStat
 
+    val needSpill = aggregator.isDefined
+    val daosWriter = shuffleIO.getDaosWriter(
+      numPartitions,
+      shuffleId,
+      context.taskAttemptId())
+    daosWriter.setNeedSpill(needSpill)
+
+    val readerConfig = new DaosReader.ReaderConfig(conf)
+
     if (log.isDebugEnabled()) {
-      log.debug("partBufferThreshold: " + partBufferThreshold)
       log.debug("totalBufferThreshold: " + totalBufferThreshold)
       log.debug("totalBufferInitial: " + totalBufferInitial)
       log.debug("forceWritePct: " + forceWritePct)
@@ -175,21 +185,19 @@ class MapPartitionsWriter[K, V, C](
 
     var peakSize = 0L
 
-    private def initialize[T >: Linked[K, C] with SizeAware[K, C]]():
-      (T, T, Array[SizeAwareMap[K, C]], Array[SizeAwareBuffer[K, C]]) = {
+    private def initialize[T >: Linked[K, V, C] with SizeAware[K, V, C]]():
+      (T, T, Array[SizeAwarePartMap], Array[SizeAwarePartBuffer]) = {
       // create virtual partition head and end, as well as all linked partitions
       val (partitionMapArray, partitionBufferArray) = if (comparator.isDefined) {
-        (new Array[SizeAwareMap[K, C]](numPartitions), null)
+        (new Array[SizeAwarePartMap](numPartitions), null)
       } else {
-        (null, new Array[SizeAwareBuffer[K, C]](numPartitions))
+        (null, new Array[SizeAwarePartBuffer](numPartitions))
       }
       val (head, end) = if (comparator.isDefined) {
-        val mapHead = new SizeAwareMap[K, C](-1, partBufferThreshold,
-          totalBufferInitial, this)
-        val mapEnd = new SizeAwareMap[K, C](-2, partBufferThreshold,
-          totalBufferInitial, this)
+        val mapHead = new SizeAwarePartMap(-1, this)
+        val mapEnd = new SizeAwarePartMap(-2, this)
         (0 until numPartitions).foreach(i => {
-          val map = new SizeAwareMap[K, C](i, partBufferThreshold, totalBufferInitial, this)
+          val map = new SizeAwarePartMap(i, this)
           partitionMapArray(i) = map
           if (i > 0) {
             val prevMap = partitionMapArray(i - 1)
@@ -199,12 +207,10 @@ class MapPartitionsWriter[K, V, C](
         })
         (mapHead, mapEnd)
       } else {
-        val bufferHead = new SizeAwareBuffer[K, C](-1, partBufferThreshold,
-          totalBufferInitial, this)
-        val bufferEnd = new SizeAwareBuffer[K, C](-2, partBufferThreshold,
-          totalBufferInitial, this)
+        val bufferHead = new SizeAwarePartBuffer(-1, this)
+        val bufferEnd = new SizeAwarePartBuffer(-2, this)
         (0 until numPartitions).foreach(i => {
-          val buffer = new SizeAwareBuffer[K, C](i, partBufferThreshold, totalBufferInitial, this)
+          val buffer = new SizeAwarePartBuffer(i, this)
           partitionBufferArray(i) = buffer
           if (i > 0) {
             val prevBuffer = partitionBufferArray(i - 1)
@@ -227,7 +233,7 @@ class MapPartitionsWriter[K, V, C](
 
     private val (head, end, partitionMapArray, partitionBufferArray) = initialize()
 
-    private def moveToFirst(node: Linked[K, C] with SizeAware[K, C]): Unit = {
+    private def moveToFirst(node: Linked[K, V, C] with SizeAware[K, V, C]): Unit = {
       if (head.next != node) {
         // remove node from list
         node.prev.next = node.next
@@ -242,7 +248,7 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    private def moveToLast(node: Linked[K, C] with SizeAware[K, C]): Unit = {
+    private def moveToLast(node: Linked[K, V, C] with SizeAware[K, V, C]): Unit = {
       if (end.prev != node) {
         // remove node from list
         node.prev.next = node.next
@@ -279,7 +285,7 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    def movePartition[T <: SizeAware[K, C] with Linked[K, C]](estSize: Long, buffer: T): Unit = {
+    def movePartition[T <: SizeAware[K, V, C] with Linked[K, V, C]](estSize: Long, buffer: T): Unit = {
       if (estSize > largestSize) {
         largestSize = estSize
         moveToFirst(buffer)
@@ -336,7 +342,20 @@ class MapPartitionsWriter[K, V, C](
 
     def flushAll: Unit = {
       val buffer = if (comparator.isDefined) partitionMapArray else partitionBufferArray
-      buffer.foreach(e => e.writeAndFlush)
+      if (needSpill) {
+        daosWriter.setFinal()
+        var totalDiskSpilled = 0L
+        var totalMemSpilled = 0L
+        buffer.foreach(e => {
+          totalDiskSpilled += e.merge
+          totalMemSpilled += e.spillMemSize
+        })
+        context.taskMetrics().incDiskBytesSpilled(totalDiskSpilled)
+        context.taskMetrics().incMemoryBytesSpilled(totalMemSpilled)
+      } else {
+        buffer.foreach(e => e.writeAndFlush)
+      }
+      context.taskMetrics().incPeakExecutionMemory(peakSize)
     }
 
     def close: Unit = {
@@ -353,102 +372,13 @@ class MapPartitionsWriter[K, V, C](
     }
   }
 
-  private[daos] trait SizeAware[K, C] {
-
-    protected var writeCount = 0
-
-    protected var lastSize = 0L
-
-    protected var _pairsWriter: PartitionOutput = null
-
-    def partitionId: Int
-
-    def writeThreshold: Int
-
-    def estimatedSize: Long
-
-    def totalBufferInitial: Long
-
-    def iterator: Iterator[(K, C)]
-
-    def reset: Unit
-
-    def parent: PartitionsBuffer[K, C]
-
-    def pairsWriter: PartitionOutput
-
-    def updateTotalSize(estSize: Long): Unit = {
-      val diff = estSize - lastSize
-      if (diff > 0) {
-        lastSize = estSize
-        parent.updateTotalSize(diff)
-      }
-    }
-
-    def releaseMemory(memory: Long): Unit = {
-      parent.releaseMemory(memory)
-      parent.updateTotalSize(-memory)
-    }
-
-    private def writeAndFlush(memory: Long): Unit = {
-      val writer = if (_pairsWriter != null) _pairsWriter else pairsWriter
-      var count = 0
-      iterator.foreach(p => {
-        writer.write(p._1, p._2)
-        count += 1
-      })
-      if (count > 0) {
-        writer.flush // force write
-        writeCount += count
-        lastSize = 0
-        releaseMemory(memory)
-        reset
-      }
-    }
-
-    def writeAndFlush: Unit = {
-      writeAndFlush(estimatedSize)
-    }
-
-    def maybeWrite(memory: Long): Boolean = {
-      if (memory < writeThreshold) {
-        false
-      } else {
-        writeAndFlush(memory)
-        true
-      }
-    }
-
-    def afterUpdate(estSize: Long): Long = {
-      if (maybeWrite(estSize)) {
-        0L
-      } else {
-        updateTotalSize(estSize)
-        estSize
-      }
-    }
-
-    def close: Unit = {
-      if (_pairsWriter != null) {
-        _pairsWriter.close
-        _pairsWriter = null
-      }
-    }
-  }
-
-  private[daos] trait Linked[K, C] {
-    this: SizeAware[K, C] =>
-
-    var prev: Linked[K, C] with SizeAware[K, C] = null
-    var next: Linked[K, C] with SizeAware[K, C] = null
-  }
-
-  private class SizeAwareMap[K, C](
+  private class SizeAwarePartMap(
       val partitionId: Int,
-      val writeThreshold: Int,
-      val totalBufferInitial: Long,
-      val parent: PartitionsBuffer[K, C]) extends Linked[K, C]
-      with SizeAware[K, C] {
+      val parent: PartitionsBuffer) extends
+      {
+        val pairsWriter = new PartitionOutput[K, V, C](partitionId, context.taskAttemptId(), parent, serializerManager,
+          serInstance, writeMetrics)
+      } with Linked[K, V, C] with SizeAware[K, V, C] {
 
     private var map = new SizeSamplerAppendOnlyMap[K, C](parent.sampleStat)
     private var _estSize: Long = _
@@ -471,28 +401,15 @@ class MapPartitionsWriter[K, V, C](
     def iterator(): Iterator[(K, C)] = {
       map.destructiveSortedIterator(parent.keyComparator.get)
     }
-
-    def spill(size: Long, trigger: MemoryConsumer): Long = {
-      val curSize = _estSize
-      writeAndFlush
-      curSize
-    }
-
-    def pairsWriter: PartitionOutput = {
-      if (_pairsWriter == null) {
-        _pairsWriter = new PartitionOutput(shuffleId, context.taskAttemptId(), partitionId, serializerManager,
-          serInstance, daosWriter, writeMetrics)
-      }
-      _pairsWriter
-    }
   }
 
-  private class SizeAwareBuffer[K, C](
+  private class SizeAwarePartBuffer(
     val partitionId: Int,
-    val writeThreshold: Int,
-    val totalBufferInitial: Long,
-    val parent: PartitionsBuffer[K, C]) extends Linked[K, C]
-    with SizeAware[K, C] {
+    val parent: PartitionsBuffer) extends
+    {
+      val pairsWriter = new PartitionOutput[K, V, C](partitionId, context.taskAttemptId(), parent, serializerManager,
+        serInstance, writeMetrics)
+    } with Linked[K, V, C] with SizeAware[K, V, C] {
 
     private var buffer = new SizeSamplerPairBuffer[K, C](parent.sampleStat)
     private var _estSize: Long = _
@@ -515,13 +432,102 @@ class MapPartitionsWriter[K, V, C](
     def iterator(): Iterator[(K, C)] = {
       buffer.iterator()
     }
+  }
+}
 
-    def pairsWriter: PartitionOutput = {
-      if (_pairsWriter == null) {
-        _pairsWriter = new PartitionOutput(shuffleId, context.taskAttemptId(), partitionId, serializerManager,
-          serInstance, daosWriter, writeMetrics)
+object MapPartitionsWriter {
+
+  private[daos] trait SizeAware[K, V, C] {
+
+    protected var writeCount = 0
+
+    protected var totalWrittenMem = 0L
+
+    protected var lastSize = 0L
+
+    val pairsWriter: PartitionOutput[K, V, C]
+
+    val partitionId: Int
+
+    val parent: MapPartitionsWriter[K, V, C]#PartitionsBuffer
+
+    val shuffleId: Int = parent.shuffleId
+
+    val daosWriter: DaosWriter = parent.daosWriter
+
+    val aggregator: Option[Aggregator[K, V, C]] = parent.aggregator
+
+    val keyComparator: Option[Comparator[K]] = parent.keyComparator
+
+    val shuffleIO: DaosShuffleIO = parent.shuffleIO
+
+    val readerConfig: ReaderConfig = parent.readerConfig
+
+    def estimatedSize: Long
+
+    def iterator: Iterator[(K, C)]
+
+    def spillMemSize: Long = totalWrittenMem
+
+    def reset: Unit
+
+    def updateTotalSize(estSize: Long): Unit = {
+      val diff = estSize - lastSize
+      if (diff > 0) {
+        lastSize = estSize
+        parent.updateTotalSize(diff)
       }
-      _pairsWriter
     }
+
+    def releaseMemory(memory: Long): Unit = {
+      parent.releaseMemory(memory)
+      parent.updateTotalSize(-memory)
+    }
+
+    private def writeAndFlush(memory: Long): Unit = {
+      var count = 0
+      iterator.foreach(p => {
+        pairsWriter.write(p._1, p._2)
+        count += 1
+      })
+      if (count > 0) {
+        pairsWriter.flush // force write
+        writeCount += count
+        lastSize = 0
+        totalWrittenMem += memory
+        releaseMemory(memory)
+        reset
+      }
+    }
+
+    def writeAndFlush: Unit = {
+      writeAndFlush(estimatedSize)
+    }
+
+    def merge: Long = {
+      if (daosWriter.isSpilled(partitionId)) { // partition actually spilled ?
+        val merger = new PartitionMerger[K, V, C](this, shuffleIO, readerConfig)
+        merger.mergeAndOutput
+      } else {
+        writeAndFlush
+        0L
+      }
+    }
+
+    def afterUpdate(estSize: Long): Long = {
+      updateTotalSize(estSize)
+      estSize
+    }
+
+    def close: Unit = {
+      pairsWriter.close
+    }
+  }
+
+  private[daos] trait Linked[K, V, C] {
+    this: SizeAware[K, V, C] =>
+
+    var prev: Linked[K, V, C] with SizeAware[K, V, C] = null
+    var next: Linked[K, V, C] with SizeAware[K, V, C] = null
   }
 }

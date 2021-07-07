@@ -106,12 +106,39 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   @Override
+  public void setNeedSpill(boolean needSpill) {
+    iw.setNeedSpill(needSpill);
+  }
+
+  @Override
+  public void setFinal() {
+    iw.setFinal();
+  }
+
+  @Override
+  public void setMerged(int partitionId) {
+    iw.setMerged(partitionId);
+  }
+
+  @Override
+  public boolean isSpilled(int partitionId) {
+    return iw.isSpilled(partitionId);
+  }
+
+  @Override
+  public List<SpillInfo> getSpillInfo(int partitionId) {
+    return iw.getSpillInfo(partitionId);
+  }
+
+  @Override
   public void flush(int partitionId) throws IOException {
     iw.flush(partitionId);
   }
 
   @Override
-  public void flushAll() {}
+  public void flushAll() throws IOException {
+    iw.flushAll();
+  }
 
   private void runBySelf(IODataDescSync desc, NativeBuffer buffer) throws IOException {
     totalBySelfTimes++;
@@ -191,6 +218,11 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   @Override
   public void close() {
     iw.close();
+  }
+
+  @Override
+  public void resetMetrics(int partitionId) {
+    iw.resetMetrics(partitionId);
   }
 
   private void waitCompletion(boolean force) throws Exception {

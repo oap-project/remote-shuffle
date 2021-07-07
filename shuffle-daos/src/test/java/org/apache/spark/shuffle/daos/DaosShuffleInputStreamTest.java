@@ -317,14 +317,13 @@ public class DaosShuffleInputStreamTest {
         new DaosReaderSync.ReadThreadFactory());
     DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(testConf),
             executors.nextExecutor());
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
+    LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;
     int size = (int)(minSize + 5) * 1024;
     for (int i = 0; i < maps; i++) {
-      partSizeMap.put(new Tuple2<>(Long.valueOf(i), 10), new Tuple3<>(Long.valueOf(size),
-              new ShuffleBlockId(shuffleId, i, reduceId),
-          BlockManagerId.apply("1", "localhost", 2, Option.empty())));
+      partSizeMap.put(new Tuple2<>(Long.valueOf(i), 10), new Tuple2<>(Long.valueOf(size),
+              new ShuffleBlockId(shuffleId, i, reduceId)));
     }
 
     DaosShuffleInputStream is = new DaosShuffleInputStream(daosReader, partSizeMap, 2 * minSize * 1024,

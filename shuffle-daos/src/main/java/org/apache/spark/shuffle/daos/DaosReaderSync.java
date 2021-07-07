@@ -143,7 +143,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
   }
 
   @Override
-  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap,
+  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                      long maxBytesInFlight, long maxReqSizeShuffleToMem,
                      ShuffleReadMetricsReporter metrics) {
     reader.prepare(partSizeMap, maxBytesInFlight, maxReqSizeShuffleToMem, metrics);

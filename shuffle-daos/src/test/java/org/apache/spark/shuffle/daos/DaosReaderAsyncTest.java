@@ -86,7 +86,7 @@ public class DaosReaderAsyncTest {
 
   @Test
   public void testOneEntry() throws Exception {
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
+    LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
     partSizeMap = new LinkedHashMap<>();
     long mapId = 12345;
     int reduceId = 6789;
@@ -112,7 +112,7 @@ public class DaosReaderAsyncTest {
       }
     }).when(eq).pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
     BlockId blockId = new ShuffleBlockId(shuffleId, mapId, reduceId);
-    partSizeMap.put(new Tuple2<>(mapId, reduceId), new Tuple3<>(len, blockId, null));
+    partSizeMap.put(new Tuple2<>(mapId, reduceId), new Tuple2<>(len, blockId));
     ShuffleReadMetricsReporter metrics = new TempShuffleReadMetrics();
     reader.prepare(partSizeMap, 2 * 1024 * 1024, 2 * 1024 * 1024,
         metrics);
@@ -126,7 +126,7 @@ public class DaosReaderAsyncTest {
 
   @Test
   public void testTwoEntries() throws Exception {
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
+    LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
     partSizeMap = new LinkedHashMap<>();
     long[] mapIds = new long[] {12345, 12346};
     int reduceId = 6789;
@@ -158,7 +158,7 @@ public class DaosReaderAsyncTest {
       Mockito.when(descs[i].getEntry(0)).thenReturn(entries[i]);
       Mockito.when(descs[i].isSucceeded()).thenReturn(true);
       BlockId blockId = new ShuffleBlockId(shuffleId, mapIds[i], reduceId);
-      partSizeMap.put(new Tuple2<>(mapIds[i], reduceId), new Tuple3<>(lens[i], blockId, null));
+      partSizeMap.put(new Tuple2<>(mapIds[i], reduceId), new Tuple2<>(lens[i], blockId));
     }
     Mockito.when(eq.getEqWrapperHdl()).thenReturn(eqHandle);
 

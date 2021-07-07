@@ -95,6 +95,7 @@ public class DaosWriterAsync extends DaosWriterBase {
       descSet.forEach(desc -> desc.release());
       descSet.clear();
     }
+    super.flushAll();
   }
 
   private DaosEventQueue.Event acquireEvent() throws IOException {

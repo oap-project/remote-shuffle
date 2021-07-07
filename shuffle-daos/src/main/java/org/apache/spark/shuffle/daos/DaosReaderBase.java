@@ -5,9 +5,7 @@ import io.daos.obj.IODataDescBase;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.io.IOException;
 import java.util.Iterator;
@@ -22,7 +20,7 @@ public abstract class DaosReaderBase implements DaosReader {
 
   protected ReaderConfig config;
 
-  protected LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
+  protected LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
 
   protected Iterator<Tuple2<Long, Integer>> mapIdIt;
 
@@ -68,7 +66,7 @@ public abstract class DaosReaderBase implements DaosReader {
   }
 
   @Override
-  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap,
+  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                       long maxBytesInFlight, long maxReqSizeShuffleToMem, ShuffleReadMetricsReporter metrics) {
     this.partSizeMap = partSizeMap;
     this.config = config.copy(maxBytesInFlight, maxReqSizeShuffleToMem);
