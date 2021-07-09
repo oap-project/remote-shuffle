@@ -6,7 +6,7 @@
 
     <groupId>com.intel.oap</groupId>
     <artifactId>remote-shuffle-parent</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.0</version>
     <name>OAP Remote Shuffle Parent POM</name>
     <packaging>pom</packaging>
 
