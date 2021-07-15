@@ -41,13 +41,12 @@ import org.apache.spark.util.Utils
   * @param daosWriter
   * @param writeMetrics
   */
-class PartitionOutput(
-  shuffleId: Int,
-  mapId: Long,
+class PartitionOutput[K, V, C](
   partitionId: Int,
+  mapId: Long,
+  parent: MapPartitionsWriter[K, V, C]#PartitionsBuffer,
   serializerManager: SerializerManager,
   serializerInstance: SerializerInstance,
-  daosWriter: DaosWriter,
   writeMetrics: ShuffleWriteMetricsReporter) {
 
   private var ds: DaosShuffleOutputStream = null
@@ -64,11 +63,14 @@ class PartitionOutput(
 
   private var lastWrittenBytes = 0L
 
+  private val flushRecords = parent.conf.get(SHUFFLE_DAOS_WRITE_FLUSH_RECORDS)
+
   def open: Unit = {
-    ds = new DaosShuffleOutputStream(partitionId, daosWriter)
+    ds = new DaosShuffleOutputStream(partitionId, parent.daosWriter, parent.needSpill)
     ts = new TimeTrackingOutputStream(writeMetrics, ds)
-    bs = serializerManager.wrapStream(ShuffleBlockId(shuffleId, mapId, partitionId), ts)
+    bs = serializerManager.wrapStream(ShuffleBlockId(parent.shuffleId, mapId, partitionId), ts)
     objOut = serializerInstance.serializeStream(bs)
+
     opened = true
   }
 
@@ -78,11 +80,19 @@ class PartitionOutput(
     }
     objOut.writeKey(key)
     objOut.writeValue(value)
+
     // update metrics
     numRecordsWritten += 1
-    writeMetrics.incRecordsWritten(1)
-    if (numRecordsWritten % 16384 == 0) {
-      updateWrittenBytes
+    // writeMetrics.incRecordsWritten(1)
+//    if (numRecordsWritten % 16384 == 0) {
+//      updateWrittenBytes
+//    }
+  }
+
+  def writeAutoFlush(key: Any, value: Any): Unit = {
+    write(key, value)
+    if (numRecordsWritten % flushRecords == 0) {
+      flush
     }
   }
 
@@ -95,9 +105,18 @@ class PartitionOutput(
   def flush: Unit = {
     if (opened) {
       objOut.flush()
-      daosWriter.flush(partitionId)
-      updateWrittenBytes
+      parent.daosWriter.flush(partitionId)
+//      updateWrittenBytes
     }
+  }
+
+  def setMerged: Unit = {
+    parent.daosWriter.setMerged(partitionId)
+  }
+
+  def resetMetrics: Unit = {
+    numRecordsWritten = 0
+    ds.resetMetrics()
   }
 
   def close: Unit = {
@@ -106,6 +125,7 @@ class PartitionOutput(
         objOut.close()
       } {
         updateWrittenBytes
+        writeMetrics.incRecordsWritten(numRecordsWritten)
         objOut = null
         bs = null
         ds = null

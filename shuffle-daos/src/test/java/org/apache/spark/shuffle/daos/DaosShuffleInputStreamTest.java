@@ -31,7 +31,6 @@ import org.apache.spark.SparkContext;
 import org.apache.spark.TaskContext;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.apache.spark.storage.ShuffleBlockId;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -46,9 +45,7 @@ import org.powermock.core.classloader.annotations.SuppressStaticInitializationFo
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -317,14 +314,13 @@ public class DaosShuffleInputStreamTest {
         new DaosReaderSync.ReadThreadFactory());
     DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(testConf),
             executors.nextExecutor());
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
+    LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;
     int size = (int)(minSize + 5) * 1024;
     for (int i = 0; i < maps; i++) {
-      partSizeMap.put(new Tuple2<>(Long.valueOf(i), 10), new Tuple3<>(Long.valueOf(size),
-              new ShuffleBlockId(shuffleId, i, reduceId),
-          BlockManagerId.apply("1", "localhost", 2, Option.empty())));
+      partSizeMap.put(new Tuple2<>(Long.valueOf(i), 10), new Tuple2<>(Long.valueOf(size),
+              new ShuffleBlockId(shuffleId, i, reduceId)));
     }
 
     DaosShuffleInputStream is = new DaosShuffleInputStream(daosReader, partSizeMap, 2 * minSize * 1024,

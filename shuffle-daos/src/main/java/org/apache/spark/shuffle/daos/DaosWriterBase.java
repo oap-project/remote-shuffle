@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 public abstract class DaosWriterBase implements DaosWriter {
@@ -35,6 +36,8 @@ public abstract class DaosWriterBase implements DaosWriter {
   protected DaosObject object;
 
   protected String mapId;
+
+  protected boolean needSpill;
 
   protected WriteParam param;
 
@@ -57,7 +60,7 @@ public abstract class DaosWriterBase implements DaosWriter {
   protected NativeBuffer getNativeBuffer(int partitionId) {
     NativeBuffer buffer = partitionBufArray[partitionId];
     if (buffer == null) {
-      buffer = new NativeBuffer(object, mapId, partitionId, config.getBufferSize());
+      buffer = new NativeBuffer(object, mapId, partitionId, config.getBufferSize(), needSpill);
       partitionBufArray[partitionId] = buffer;
     }
     return buffer;
@@ -79,6 +82,53 @@ public abstract class DaosWriterBase implements DaosWriter {
   }
 
   @Override
+  public void setNeedSpill(boolean needSpill) {
+    this.needSpill = needSpill;
+  }
+
+  @Override
+  public void setMerged(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return;
+    }
+    buffer.setMerged();
+  }
+
+  @Override
+  public boolean isSpilled(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return false;
+    }
+    return buffer.isSpilled();
+  }
+
+  @Override
+  public List<SpillInfo> getSpillInfo(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return null;
+    }
+    return buffer.getSpillInfo();
+  }
+
+  @Override
+  public void resetMetrics(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
+      return;
+    }
+    // make sure all pending writes done, like async write
+    try {
+      flushAll();
+    } catch (IOException e) {
+      throw new IllegalStateException("failed to flush all existing writes", e);
+    }
+    buffer.resetMetrics();
+  }
+
+  @Override
   public void flushAll() throws IOException {}
 
   @Override
@@ -89,7 +139,7 @@ public abstract class DaosWriterBase implements DaosWriter {
         NativeBuffer nb = partitionBufArray[i];
         if (nb != null) {
           LOG.debug("id: " + i + ", native buffer: " + nb.getPartitionId() + ", " +
-              nb.getTotalSize() + ", " + nb.getRoundSize());
+              nb.getTotalSize() + ", " + nb.getSubmittedSize());
         }
       }
     }
@@ -98,8 +148,8 @@ public abstract class DaosWriterBase implements DaosWriter {
       NativeBuffer nb = partitionBufArray[i];
       if (nb != null) {
         lens[i] = nb.getTotalSize();
-        if (nb.getRoundSize() != 0 || !nb.getBufList().isEmpty()) {
-          throw new IllegalStateException("round size should be 0, " + nb.getRoundSize() +
+        if (nb.getSubmittedSize() != 0 || !nb.getBufList().isEmpty()) {
+          throw new IllegalStateException("round size should be 0, " + nb.getSubmittedSize() +
               ", buflist should be empty, " +
               nb.getBufList().size());
         }
@@ -108,5 +158,10 @@ public abstract class DaosWriterBase implements DaosWriter {
       }
     }
     return lens;
+  }
+
+  @Override
+  public void close() {
+    partitionBufArray = null;
   }
 }

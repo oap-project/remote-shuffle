@@ -29,11 +29,9 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.SparkEnv;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -74,7 +72,7 @@ public interface DaosReader {
    * @param metrics
    * @return
    */
-  void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap,
+  void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                long maxBytesInFlight, long maxReqSizeShuffleToMem, ShuffleReadMetricsReporter metrics);
 
   /**

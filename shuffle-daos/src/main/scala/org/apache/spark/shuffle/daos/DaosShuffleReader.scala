@@ -37,8 +37,7 @@ class DaosShuffleReader[K, C](
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
     shuffleIO: DaosShuffleIO,
-    serializerManager: SerializerManager = SparkEnv.get.serializerManager,
-    shouldBatchFetch: Boolean = false)
+    serializerManager: SerializerManager = SparkEnv.get.serializerManager)
   extends ShuffleReader[K, C] with Logging {
 
   private val dep = handle.dependency
@@ -58,8 +57,7 @@ class DaosShuffleReader[K, C](
       conf.get(config.SHUFFLE_DETECT_CORRUPT),
       conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
       readMetrics,
-      daosReader,
-      shouldBatchFetch
+      daosReader
     ).toCompletionIterator
 
     val serializerInstance = dep.serializer.newInstance()

@@ -48,7 +48,6 @@ class DaosShuffleWriterPerf extends SparkFunSuite with SharedSparkContext {
   private val singleBufSize = conf.get(SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE) * 1024 * 1024
   private val minSize = conf.get(SHUFFLE_DAOS_WRITE_MINIMUM_SIZE) * 1024
 
-  conf.set(SHUFFLE_DAOS_WRITE_PARTITION_BUFFER_SIZE, 100L)
   conf.set(SHUFFLE_DAOS_WRITE_BUFFER_SIZE, 80L)
 
   override def beforeEach(): Unit = {
