@@ -104,6 +104,15 @@ package object daos {
         s"The single DAOS write buffer must be at least 1m")
       .createWithDefaultString("2m")
 
+  val SHUFFLE_DAOS_WRITE_FLUSH_RECORDS =
+    ConfigBuilder("spark.shuffle.daos.write.flush.records")
+      .doc("per how many number of records to flush data in buffer to DAOS")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 100,
+      s"number of records to flush should be no more than 100")
+      .createWithDefault(10000)
+
   val SHUFFLE_DAOS_READ_MINIMUM_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.minimum")
       .doc("minimum size when read from DAOS, in KiB. ")

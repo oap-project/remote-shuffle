@@ -39,8 +39,6 @@ public abstract class DaosWriterBase implements DaosWriter {
 
   protected boolean needSpill;
 
-  protected boolean allConsumed;
-
   protected WriteParam param;
 
   protected WriterConfig config;
@@ -94,13 +92,7 @@ public abstract class DaosWriterBase implements DaosWriter {
     if (buffer == null) {
       return;
     }
-    buffer.resetSeq();
-    buffer.setNeedSpill(false);
-  }
-
-  @Override
-  public void setFinal() {
-    this.allConsumed = true;
+    buffer.setMerged();
   }
 
   @Override
@@ -147,7 +139,7 @@ public abstract class DaosWriterBase implements DaosWriter {
         NativeBuffer nb = partitionBufArray[i];
         if (nb != null) {
           LOG.debug("id: " + i + ", native buffer: " + nb.getPartitionId() + ", " +
-              nb.getTotalSize() + ", " + nb.getRoundSize());
+              nb.getTotalSize() + ", " + nb.getSubmittedSize());
         }
       }
     }
@@ -156,8 +148,8 @@ public abstract class DaosWriterBase implements DaosWriter {
       NativeBuffer nb = partitionBufArray[i];
       if (nb != null) {
         lens[i] = nb.getTotalSize();
-        if (nb.getRoundSize() != 0 || !nb.getBufList().isEmpty()) {
-          throw new IllegalStateException("round size should be 0, " + nb.getRoundSize() +
+        if (nb.getSubmittedSize() != 0 || !nb.getBufList().isEmpty()) {
+          throw new IllegalStateException("round size should be 0, " + nb.getSubmittedSize() +
               ", buflist should be empty, " +
               nb.getBufList().size());
         }
@@ -166,5 +158,10 @@ public abstract class DaosWriterBase implements DaosWriter {
       }
     }
     return lens;
+  }
+
+  @Override
+  public void close() {
+    partitionBufArray = null;
   }
 }

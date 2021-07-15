@@ -24,13 +24,14 @@
 package org.apache.spark.shuffle.daos
 
 import java.util.Comparator
+
+import MapPartitionsWriter._
+
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
-
-import MapPartitionsWriter._
 
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
@@ -343,7 +344,6 @@ class MapPartitionsWriter[K, V, C](
     def flushAll: Unit = {
       val buffer = if (comparator.isDefined) partitionMapArray else partitionBufferArray
       if (needSpill) {
-        daosWriter.setFinal()
         var totalDiskSpilled = 0L
         var totalMemSpilled = 0L
         buffer.foreach(e => {

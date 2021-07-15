@@ -80,11 +80,6 @@ public interface DaosWriter {
   void setNeedSpill(boolean needSpill);
 
   /**
-   * mark all records being consumed in map task. Later writing will be final output.
-   */
-  void setFinal();
-
-  /**
    * mark it's final write after all spills being merged.
    */
   void setMerged(int partitionId);
@@ -224,7 +219,8 @@ public interface DaosWriter {
     private List<ByteBuf> bufList = new ArrayList<>();
     private List<SpillInfo> spillInfos;
     private long totalSize;
-    private long roundSize;
+    private long submittedSize;
+    private int nbrOfSubmitted;
 
     private DaosObject object;
 
@@ -268,7 +264,6 @@ public interface DaosWriter {
         buf = addNewByteBuf(1);
       }
       buf.writeByte(b);
-      roundSize += 1;
     }
 
     public void write(byte[] b) {
@@ -289,7 +284,6 @@ public interface DaosWriter {
         buf = addNewByteBuf(gap);
         buf.writeBytes(b, avail, gap);
       }
-      roundSize += len;
     }
 
     private String currentMapId() {
@@ -299,34 +293,34 @@ public interface DaosWriter {
       return seq > 0 ? mapId + "_" + seq : mapId;
     }
 
-    private boolean isEmpty() {
-      return roundSize == 0 || bufList.isEmpty();
-    }
-
     /**
      * create list of {@link IODataDescSync} each of them has only one akey entry.
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
+     * @param fullBufferOnly
      * @return list of {@link IODataDescSync}
      * @throws IOException
      */
-    public List<IODataDescSync> createUpdateDescs() throws IOException {
-      if (isEmpty()) {
+    public List<IODataDescSync> createUpdateDescs(boolean fullBufferOnly) throws IOException {
+      int nbrOfBuf = bufList.size();
+      if ((nbrOfBuf == 0) | (fullBufferOnly & (nbrOfBuf <= 1))) {
         return Collections.emptyList();
       }
+      nbrOfBuf -= fullBufferOnly ? 1 : 0;
+
       List<IODataDescSync> descList = new ArrayList<>(bufList.size());
       String cmapId = currentMapId();
       long bufSize = 0;
-      for (ByteBuf buf : bufList) {
+      for (int i = 0; i < nbrOfBuf; i++) {
         IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
+        ByteBuf buf = bufList.get(i);
         desc.addEntryForUpdate(cmapId, totalSize + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
-      addSpill(cmapId, roundSize);
+      nbrOfSubmitted = nbrOfBuf;
+      submittedSize = bufSize;
+      addSpill(cmapId, bufSize);
       return descList;
     }
 
@@ -334,34 +328,37 @@ public interface DaosWriter {
      * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
+     * @param eqHandle
+     * @param fullBufferOnly
      * @return list of {@link IOSimpleDDAsync}
      * @throws IOException
      */
-    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
-      if (isEmpty()) {
+    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle, boolean fullBufferOnly) throws IOException {
+      int nbrOfBuf = bufList.size();
+      if ((nbrOfBuf == 0) | (fullBufferOnly & (nbrOfBuf <= 1))) {
         return Collections.emptyList();
       }
-      List<IOSimpleDDAsync> descList = new ArrayList<>();
+      nbrOfBuf -= fullBufferOnly ? 1 : 0;
+
+      List<IOSimpleDDAsync> descList = new ArrayList<>(nbrOfBuf);
       String cmapId = currentMapId();
       long bufSize = 0;
-      for (ByteBuf buf : bufList) {
+      for (int i = 0; i < nbrOfBuf; i++) {
         IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
+        ByteBuf buf = bufList.get(i);
         desc.addEntryForUpdate(cmapId, totalSize + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
-      addSpill(cmapId, roundSize);
+      nbrOfSubmitted = nbrOfBuf;
+      submittedSize = bufSize;
+      addSpill(cmapId, bufSize);
       return descList;
     }
 
     private void addSpill(String cmapId, long roundSize) {
       if (needSpill) {
-        if (seq > 1) {
-          LOG.info("reduce ID: " + partitionIdKey + ", map ID: " + cmapId + ", spilling to DAOS, size: " + roundSize);
-        }
+        LOG.info("reduce ID: " + partitionIdKey + ", map ID: " + cmapId + ", spilling to DAOS, size: " + roundSize);
         spillInfos.add(new SpillInfo(partitionIdKey, cmapId, roundSize));
       }
     }
@@ -372,13 +369,21 @@ public interface DaosWriter {
 
     public void reset(boolean release) {
       if (release) {
-        bufList.forEach(b -> b.release());
+        for (int i = 0; i < nbrOfSubmitted; i++) {
+          bufList.get(i).release();
+        }
       }
       // release==false, buffers will be released when tasks are executed and consumed
+      int size = bufList.size();
+      ByteBuf lastBuf = size > 0 ? bufList.get(size - 1) : null;
       bufList.clear();
       idx = -1;
-      totalSize += roundSize;
-      roundSize = 0;
+      if (submittedSize < size) { // add back last buffer
+        bufList.add(lastBuf);
+        idx = 0;
+      }
+      totalSize += submittedSize;
+      submittedSize = 0;
     }
 
     @Override
@@ -394,8 +399,8 @@ public interface DaosWriter {
       return totalSize;
     }
 
-    public long getRoundSize() {
-      return roundSize;
+    public long getSubmittedSize() {
+      return submittedSize;
     }
 
     public List<ByteBuf> getBufList() {
@@ -403,7 +408,7 @@ public interface DaosWriter {
     }
 
     public boolean isSpilled() {
-      return seq > 1 || (seq > 0 && !isEmpty());
+      return seq > 0;
     }
 
     public void resetMetrics() {
@@ -411,12 +416,9 @@ public interface DaosWriter {
       totalSize = 0;
     }
 
-    public void resetSeq() {
+    public void setMerged() {
+      this.needSpill = false;
       this.seq = 0;
-    }
-
-    public void setNeedSpill(boolean needSpill) {
-      this.needSpill = needSpill;
     }
   }
 

@@ -93,7 +93,7 @@ class ShufflePartitionIterator(
   }
 
   override def hasNext: Boolean = {
-    (!inputStream.isCompleted()) && mapReduceIt.hasNext
+    (!inputStream.isCompleted()) & mapReduceIt.hasNext
   }
 
   override def next(): (BlockId, InputStream) = {

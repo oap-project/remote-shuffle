@@ -31,7 +31,6 @@ import org.apache.spark.SparkContext;
 import org.apache.spark.TaskContext;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.apache.spark.storage.ShuffleBlockId;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -46,9 +45,7 @@ import org.powermock.core.classloader.annotations.SuppressStaticInitializationFo
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;

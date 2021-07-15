@@ -37,8 +37,7 @@ class DaosShuffleReader[K, C](
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
     shuffleIO: DaosShuffleIO,
-    serializerManager: SerializerManager = SparkEnv.get.serializerManager,
-    shouldBatchFetch: Boolean = false)
+    serializerManager: SerializerManager = SparkEnv.get.serializerManager)
   extends ShuffleReader[K, C] with Logging {
 
   private val dep = handle.dependency

@@ -30,11 +30,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.ObjectPool;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;

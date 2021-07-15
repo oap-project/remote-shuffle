@@ -63,11 +63,14 @@ class PartitionOutput[K, V, C](
 
   private var lastWrittenBytes = 0L
 
+  private val flushRecords = parent.conf.get(SHUFFLE_DAOS_WRITE_FLUSH_RECORDS)
+
   def open: Unit = {
     ds = new DaosShuffleOutputStream(partitionId, parent.daosWriter, parent.needSpill)
     ts = new TimeTrackingOutputStream(writeMetrics, ds)
     bs = serializerManager.wrapStream(ShuffleBlockId(parent.shuffleId, mapId, partitionId), ts)
     objOut = serializerInstance.serializeStream(bs)
+
     opened = true
   }
 
@@ -77,12 +80,20 @@ class PartitionOutput[K, V, C](
     }
     objOut.writeKey(key)
     objOut.writeValue(value)
+
     // update metrics
     numRecordsWritten += 1
     // writeMetrics.incRecordsWritten(1)
 //    if (numRecordsWritten % 16384 == 0) {
 //      updateWrittenBytes
 //    }
+  }
+
+  def writeAutoFlush(key: Any, value: Any): Unit = {
+    write(key, value)
+    if (numRecordsWritten % flushRecords == 0) {
+      flush
+    }
   }
 
   private def updateWrittenBytes: Unit = {
@@ -99,7 +110,7 @@ class PartitionOutput[K, V, C](
     }
   }
 
-  def setMerged(bool: Boolean): Unit = {
+  def setMerged: Unit = {
     parent.daosWriter.setMerged(partitionId)
   }
 

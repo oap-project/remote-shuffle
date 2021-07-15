@@ -23,6 +23,12 @@
 
 package org.apache.spark.shuffle.daos
 
+import java.util.{Comparator, UUID}
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+
 import org.apache.spark.SparkEnv
 import org.apache.spark.executor.TempShuffleReadMetrics
 import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
@@ -30,18 +36,14 @@ import org.apache.spark.shuffle.daos.DaosWriter.SpillInfo
 import org.apache.spark.shuffle.daos.MapPartitionsWriter.SizeAware
 import org.apache.spark.storage.{BlockId, TempLocalBlockId}
 
-import java.util.{Comparator, UUID}
-import scala.collection.JavaConverters._
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-
 class PartitionMerger[K, V, C] (
   val part: SizeAware[K, V, C],
   val io: DaosShuffleIO,
   val conf: ReaderConfig) {
 
   def mergeAndOutput: Long = {
-    part.pairsWriter.resetMetrics
+    val pw = part.pairsWriter
+    pw.resetMetrics
     val infoList = part.daosWriter.getSpillInfo(part.partitionId)
     val nbrOfSpill = infoList.size()
     var totalSpilled = 0L
@@ -50,11 +52,12 @@ class PartitionMerger[K, V, C] (
       new SpillIterator[K, C](info, nbrOfSpill)
     }) ++ Seq(part.iterator)
     val it = mergeWithAggregation(iterators, part.aggregator.get.mergeCombiners, part.keyComparator.get)
-    part.pairsWriter.setMerged(true)
+    pw.setMerged
     while (it.hasNext) {
       val item = it.next()
-      part.pairsWriter.write(item._1, item._2)
+      part.pairsWriter.writeAutoFlush(item._1, item._2)
     }
+    pw.flush
     totalSpilled
   }
 

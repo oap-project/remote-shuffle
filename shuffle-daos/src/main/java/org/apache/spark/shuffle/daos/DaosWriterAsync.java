@@ -50,11 +50,15 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   @Override
   public void flush(int partitionId) throws IOException {
+    flush(partitionId, true);
+  }
+
+  private void flush(int partitionId, boolean fullBufferOnly) throws IOException {
     NativeBuffer buffer = partitionBufArray[partitionId];
     if (buffer == null) {
       return;
     }
-    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl());
+    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), fullBufferOnly);
     if (descList.isEmpty()) {
       buffer.reset(true);
       return;
@@ -73,12 +77,19 @@ public class DaosWriterAsync extends DaosWriterBase {
     }
     buffer.reset(false);
     if (descSet.size() >= config.getAsyncWriteBatchSize()) {
-      flushAll();
+      waitCompletion();
     }
   }
 
   @Override
   public void flushAll() throws IOException {
+    for (int i = 0; i < partitionBufArray.length; i++) {
+      flush(i, false);
+    }
+    waitCompletion();
+  }
+
+  private void waitCompletion() throws IOException {
     int left;
     try {
       while ((left=descSet.size()) > 0) {
@@ -137,6 +148,7 @@ public class DaosWriterAsync extends DaosWriterBase {
       completedList.clear();
       completedList = null;
     }
+    super.close();
   }
 
   public void setWriterMap(Map<DaosWriter, Integer> writerMap) {

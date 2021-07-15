@@ -27,11 +27,9 @@ import io.daos.obj.DaosObject;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import javax.annotation.concurrent.NotThreadSafe;
 import java.io.IOException;
@@ -61,7 +59,7 @@ public class DaosShuffleInputStream extends InputStream {
   private boolean completed;
 
   // ensure the order of partition
-  // (mapid, reduceid) -> (length, BlockId, BlockManagerId)
+  // (mapid, reduceid) -> (length, BlockId)
   private LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
 
   private static final Logger log = LoggerFactory.getLogger(DaosShuffleInputStream.class);
