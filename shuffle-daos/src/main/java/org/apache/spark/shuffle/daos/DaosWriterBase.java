@@ -125,11 +125,6 @@ public abstract class DaosWriterBase implements DaosWriter {
     return buffer.getSpillInfo();
   }
 
-  @Override
-  public void resetMetrics(int partitionId) {
-
-  }
-
   protected abstract void waitCompletion() throws IOException;
 
   @Override

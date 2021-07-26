@@ -35,6 +35,7 @@ import org.apache.spark.util.Utils
   *
   * @param partitionId
   * @param parent
+  * @param writeMetrics
   */
 class PartitionOutput[K, V, C](
   partitionId: Int,

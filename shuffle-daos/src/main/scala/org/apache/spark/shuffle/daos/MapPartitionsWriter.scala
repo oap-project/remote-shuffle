@@ -141,10 +141,8 @@ class MapPartitionsWriter[K, V, C](
       val taskMemManager: TaskMemoryManager,
       val shuffleIO: DaosShuffleIO,
       val serializer: Serializer) extends MemoryConsumer(taskMemManager) {
-    private val totalBufferThreshold = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_SIZE).toInt * 1024 * 1024
     private val totalBufferInitial = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE).toInt * 1024 * 1024
     private val forceWritePct = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT)
-    private val totalWriteValve = totalBufferThreshold * forceWritePct
     private val partMoveInterval = conf.get(SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL)
     private val totalWriteInterval = conf.get(SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL)
     private val totalPartRatio = totalWriteInterval / partMoveInterval
@@ -171,17 +169,10 @@ class MapPartitionsWriter[K, V, C](
     val readerConfig = new DaosReader.ReaderConfig(conf)
 
     if (log.isDebugEnabled()) {
-      log.debug("totalBufferThreshold: " + totalBufferThreshold)
       log.debug("totalBufferInitial: " + totalBufferInitial)
       log.debug("forceWritePct: " + forceWritePct)
-      log.debug("totalWriteValve: " + totalWriteValve)
       log.debug("partMoveInterval: " + partMoveInterval)
       log.debug("totalWriteInterval: " + totalWriteInterval)
-    }
-
-    if (totalBufferInitial > totalBufferThreshold) {
-      throw new IllegalArgumentException("total buffer initial size (" + totalBufferInitial + ") should be no more " +
-             "than total buffer threshold (" + totalBufferThreshold + ").")
     }
 
     if (totalPartRatio == 0) {
@@ -321,7 +312,7 @@ class MapPartitionsWriter[K, V, C](
 
     private def maybeWriteTotal(): Unit = {
       if (totalSize > memoryLimit) {
-        val limit = Math.min(2 * totalSize, totalBufferThreshold)
+        val limit = 2 * totalSize
         val memRequest = limit - memoryLimit
         val granted = acquireMemory(memRequest)
         memoryLimit += granted

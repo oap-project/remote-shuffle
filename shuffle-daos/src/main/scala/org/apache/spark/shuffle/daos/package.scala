@@ -49,15 +49,6 @@ package object daos {
       .booleanConf
       .createWithDefault(true)
 
-  val SHUFFLE_DAOS_WRITE_BUFFER_SIZE =
-    ConfigBuilder("spark.shuffle.daos.write.buffer")
-      .doc("total size of in-memory buffers of each map's all partitions, in MiB")
-      .version("3.0.0")
-      .bytesConf(ByteUnit.MiB)
-      .checkValue(v => v > 50,
-        s"The total buffer size must be bigger than 50m.")
-      .createWithDefaultString("800m")
-
   val SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE =
     ConfigBuilder("spark.shuffle.daos.write.buffer.initial")
       .doc("initial size of total in-memory buffer for each map output, in MiB")

@@ -119,13 +119,6 @@ public interface DaosWriter {
   void close();
 
   /**
-   * reset metrics for merging spilled records.
-   *
-   * @param partitionId
-   */
-  void resetMetrics(int partitionId);
-
-  /**
    * get list of spilled.
    *
    * @param partitionId

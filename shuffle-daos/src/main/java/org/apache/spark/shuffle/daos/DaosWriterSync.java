@@ -219,11 +219,6 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
   }
 
-  @Override
-  public void resetMetrics(int partitionId) {
-    iw.resetMetrics(partitionId);
-  }
-
   private void waitCompletion() throws Exception {
     try {
       while (totalSubmitted > 0) {
