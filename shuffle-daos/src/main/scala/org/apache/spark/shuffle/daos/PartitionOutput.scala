@@ -25,7 +25,7 @@ package org.apache.spark.shuffle.daos
 
 import java.io.OutputStream
 
-import org.apache.spark.serializer.{SerializationStream, SerializerInstance, SerializerManager}
+import org.apache.spark.serializer.SerializationStream
 import org.apache.spark.shuffle.ShuffleWriteMetricsReporter
 import org.apache.spark.storage.{ShuffleBlockId, TimeTrackingOutputStream}
 import org.apache.spark.util.Utils
@@ -33,21 +33,17 @@ import org.apache.spark.util.Utils
 /**
   * Output for each partition.
   *
-  * @param shuffleId
-  * @param mapId
   * @param partitionId
-  * @param serializerManager
-  * @param serializerInstance
-  * @param daosWriter
-  * @param writeMetrics
+  * @param parent
   */
 class PartitionOutput[K, V, C](
   partitionId: Int,
-  mapId: Long,
   parent: MapPartitionsWriter[K, V, C]#PartitionsBuffer,
-  serializerManager: SerializerManager,
-  serializerInstance: SerializerInstance,
   writeMetrics: ShuffleWriteMetricsReporter) {
+
+  private val mapId = parent.taskContext.taskAttemptId()
+  private val serializerManager = parent.serializerManager
+  private val serializerInstance = parent.serInstance
 
   private var ds: DaosShuffleOutputStream = null
 
@@ -66,7 +62,7 @@ class PartitionOutput[K, V, C](
   private val flushRecords = parent.conf.get(SHUFFLE_DAOS_WRITE_FLUSH_RECORDS)
 
   def open: Unit = {
-    ds = new DaosShuffleOutputStream(partitionId, parent.daosWriter, parent.needSpill)
+    ds = new DaosShuffleOutputStream(partitionId, parent.daosWriter)
     ts = new TimeTrackingOutputStream(writeMetrics, ds)
     bs = serializerManager.wrapStream(ShuffleBlockId(parent.shuffleId, mapId, partitionId), ts)
     objOut = serializerInstance.serializeStream(bs)
@@ -83,10 +79,10 @@ class PartitionOutput[K, V, C](
 
     // update metrics
     numRecordsWritten += 1
-    // writeMetrics.incRecordsWritten(1)
-//    if (numRecordsWritten % 16384 == 0) {
-//      updateWrittenBytes
-//    }
+    writeMetrics.incRecordsWritten(1)
+    if (numRecordsWritten % 16384 == 0) {
+      updateWrittenBytes
+    }
   }
 
   def writeAutoFlush(key: Any, value: Any): Unit = {
@@ -106,17 +102,8 @@ class PartitionOutput[K, V, C](
     if (opened) {
       objOut.flush()
       parent.daosWriter.flush(partitionId)
-//      updateWrittenBytes
+      updateWrittenBytes
     }
-  }
-
-  def setMerged: Unit = {
-    parent.daosWriter.setMerged(partitionId)
-  }
-
-  def resetMetrics: Unit = {
-    numRecordsWritten = 0
-    ds.resetMetrics()
   }
 
   def close: Unit = {
@@ -125,7 +112,6 @@ class PartitionOutput[K, V, C](
         objOut.close()
       } {
         updateWrittenBytes
-        writeMetrics.incRecordsWritten(numRecordsWritten)
         objOut = null
         bs = null
         ds = null

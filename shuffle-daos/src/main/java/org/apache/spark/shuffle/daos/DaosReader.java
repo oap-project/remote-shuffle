@@ -72,7 +72,7 @@ public interface DaosReader {
    * @param metrics
    * @return
    */
-  void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
+  void prepare(LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                long maxBytesInFlight, long maxReqSizeShuffleToMem, ShuffleReadMetricsReporter metrics);
 
   /**
@@ -80,7 +80,7 @@ public interface DaosReader {
    *
    * @return map/reduce id tuple
    */
-  Tuple2<Long, Integer> curMapReduceId();
+  Tuple2<String, Integer> curMapReduceId();
 
   /**
    * find next mapReduce Id

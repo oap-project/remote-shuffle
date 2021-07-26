@@ -190,8 +190,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
       taskContext,
       metrics,
       shuffleIO,
-      serializerManager,
-      false)
+      serializerManager)
 
     assert(shuffleReader.read().length === keyValuePairsPerMap * numMaps)
 

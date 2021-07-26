@@ -31,7 +31,10 @@ import io.daos.obj.IOSimpleDDAsync;
 import io.netty.buffer.ByteBuf;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 
 public class DaosReaderAsync extends DaosReaderBase {
 
@@ -96,44 +99,35 @@ public class DaosReaderAsync extends DaosReaderBase {
     completedList.clear();
     long timeOutMs = config.getWaitDataTimeMs();
     long start = System.currentTimeMillis();
-    int n = eq.pollCompleted(completedList, runningDescSet.size(), timeOutMs);
-    while (n == 0) {
-      long dur = System.currentTimeMillis() - start;
+    long dur = 0L;
+    do {
+      eq.pollCompleted(completedList, IOSimpleDDAsync.class, runningDescSet, runningDescSet.size(),
+          timeOutMs - dur);
+      dur = System.currentTimeMillis() - start;
       if (dur > timeOutMs) {
         throw new TimedOutException("timed out after " + dur);
       }
-      n = eq.pollCompleted(completedList, runningDescSet.size(), timeOutMs - dur);
-    }
+    } while (completedList.isEmpty());
     verifyCompleted();
   }
 
   private ByteBuf readFromDaos() throws IOException {
     if (runningDescSet.isEmpty()) {
-      DaosEventQueue.Event event = null;
-      TimedOutException te = null;
-      try {
-        event = acquireEvent();
-      } catch (TimedOutException e) {
-        te = e;
-      }
+      DaosEventQueue.Event event = acquireEvent();
       IOSimpleDDAsync taskDesc = (IOSimpleDDAsync) createNextDesc(config.getMaxBytesInFlight());
-      if (taskDesc == null) {
-        if (event != null) {
-          event.putBack();
+      if (taskDesc != null) {
+        runningDescSet.add(taskDesc);
+        taskDesc.setEvent(event);
+        try {
+          object.fetchAsync(taskDesc);
+        } catch (IOException e) {
+          taskDesc.release();
+          runningDescSet.remove(taskDesc);
+          throw e;
         }
+      } else {
+        eq.returnEvent(event);
         return null;
-      }
-      if (te != null) { // have data to read, but no event
-        throw te;
-      }
-      runningDescSet.add(taskDesc);
-      taskDesc.setEvent(event);
-      try {
-        object.fetchAsync(taskDesc);
-      } catch (IOException e) {
-        taskDesc.release();
-        runningDescSet.remove(taskDesc);
-        throw e;
       }
     }
     progress();
@@ -146,7 +140,8 @@ public class DaosReaderAsync extends DaosReaderBase {
 
   private DaosEventQueue.Event acquireEvent() throws IOException {
     completedList.clear();
-    DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitDataTimeMs(), completedList);
+    DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitDataTimeMs(), completedList,
+        IOSimpleDDAsync.class, runningDescSet);
     verifyCompleted();
     return event;
   }
@@ -155,17 +150,15 @@ public class DaosReaderAsync extends DaosReaderBase {
     IOSimpleDDAsync failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {
-      if (runningDescSet.contains(attachment)) {
-        IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
-        runningDescSet.remove(attachment);
-        if (desc.isSucceeded()) {
-          readyList.add(desc);
-          continue;
-        }
-        failedCnt++;
-        if (failed == null) {
-          failed = desc;
-        }
+      IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
+      runningDescSet.remove(attachment);
+      if (desc.isSucceeded()) {
+        readyList.add(desc);
+        continue;
+      }
+      failedCnt++;
+      if (failed == null) {
+        failed = desc;
       }
     }
     if (failedCnt > 0) {
@@ -175,13 +168,17 @@ public class DaosReaderAsync extends DaosReaderBase {
 
   @Override
   public void close(boolean force) {
-    readyList.forEach(desc -> desc.release());
-    runningDescSet.forEach(desc -> desc.release());
-    if (!(readyList.isEmpty() && runningDescSet.isEmpty())) {
+    IllegalStateException e = null;
+    if (!(readyList.isEmpty() & runningDescSet.isEmpty())) {
       StringBuilder sb = new StringBuilder();
       sb.append(readyList.isEmpty() ? "" : "not all data consumed. ");
-      sb.append(runningDescSet.isEmpty() ? "" : "some data is on flight");
-      throw new IllegalStateException(sb.toString());
+      sb.append(runningDescSet.isEmpty() ? "" : "some data is on flight ");
+      e = new IllegalStateException(sb.toString());
+    }
+    readyList.forEach(desc -> desc.release());
+    runningDescSet.forEach(desc -> desc.release());
+    if (e != null) {
+      throw e;
     }
   }
 }

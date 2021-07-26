@@ -27,14 +27,12 @@ import io.daos.obj.DaosObject;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import scala.Tuple2;
 
 import javax.annotation.concurrent.NotThreadSafe;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.*;
+import java.util.LinkedHashMap;
 
 @NotThreadSafe
 /**
@@ -60,9 +58,7 @@ public class DaosShuffleInputStream extends InputStream {
 
   // ensure the order of partition
   // (mapid, reduceid) -> (length, BlockId)
-  private LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
-
-  private static final Logger log = LoggerFactory.getLogger(DaosShuffleInputStream.class);
+  private LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap;
 
   /**
    * constructor with ordered map outputs info. Check {@link DaosReader.ReaderConfig} for more paras controlling
@@ -81,7 +77,7 @@ public class DaosShuffleInputStream extends InputStream {
    */
   public DaosShuffleInputStream(
       DaosReader reader,
-      LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
+      LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
       long maxBytesInFlight, long maxReqSizeShuffleToMem,
       ShuffleReadMetricsReporter metrics) {
     this.partSizeMap = partSizeMap;
@@ -98,9 +94,9 @@ public class DaosShuffleInputStream extends InputStream {
     return partSizeMap.get(reader.curMapReduceId())._2();
   }
 
-  public long getCurMapIndex() {
+  public String getCurMapIndex() {
     if (reader.curMapReduceId() == null) {
-      return -1;
+      return "-1";
     }
     return reader.curMapReduceId()._1;
   }

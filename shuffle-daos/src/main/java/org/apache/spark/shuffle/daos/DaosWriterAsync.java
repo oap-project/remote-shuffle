@@ -31,7 +31,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class DaosWriterAsync extends DaosWriterBase {
 
@@ -41,7 +45,7 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
 
-  private static final Logger log = LoggerFactory.getLogger(DaosWriterAsync.class);
+  private static Logger log = LoggerFactory.getLogger(DaosWriterAsync.class);
 
   public DaosWriterAsync(DaosObject object, WriteParam param) throws IOException {
     super(object, param);
@@ -50,15 +54,15 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   @Override
   public void flush(int partitionId) throws IOException {
-    flush(partitionId, true);
-  }
-
-  private void flush(int partitionId, boolean fullBufferOnly) throws IOException {
     NativeBuffer buffer = partitionBufArray[partitionId];
     if (buffer == null) {
       return;
     }
-    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), fullBufferOnly);
+    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl());
+    flush(buffer, descList);
+  }
+
+  private void flush(NativeBuffer buffer, List<IOSimpleDDAsync> descList) throws IOException {
     if (descList.isEmpty()) {
       buffer.reset(true);
       return;
@@ -84,18 +88,24 @@ public class DaosWriterAsync extends DaosWriterBase {
   @Override
   public void flushAll() throws IOException {
     for (int i = 0; i < partitionBufArray.length; i++) {
-      flush(i, false);
+      NativeBuffer buffer = partitionBufArray[i];
+      if (buffer == null) {
+        continue;
+      }
+      List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), false);
+      flush(buffer, descList);
     }
     waitCompletion();
   }
 
-  private void waitCompletion() throws IOException {
+  @Override
+  protected void waitCompletion() throws IOException {
     int left;
     try {
       while ((left=descSet.size()) > 0) {
         completedList.clear();
-        int n = eq.pollCompleted(completedList, left, config.getWaitTimeMs());
-        if (n == 0) {
+        eq.pollCompleted(completedList, IOSimpleDDAsync.class, descSet, left, config.getWaitTimeMs());
+        if (completedList.isEmpty()) {
           throw new TimedOutException("timed out after " + config.getWaitTimeMs());
         }
         verifyCompleted();
@@ -111,26 +121,30 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   private DaosEventQueue.Event acquireEvent() throws IOException {
     completedList.clear();
-    DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitTimeMs(), completedList);
-    verifyCompleted();
-    return event;
+    try {
+      DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitTimeMs(), completedList,
+          IOSimpleDDAsync.class, descSet);
+      verifyCompleted();
+      return event;
+    } catch (IOException e) {
+      log.error("EQNBR: " + eq.getNbrOfEvents() + ", " + eq.getNbrOfAcquired() + ", " + descSet.size());
+      throw e;
+    }
   }
 
   private void verifyCompleted() throws IOException {
     String failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {
-      if (descSet.contains(attachment)) {
-        descSet.remove(attachment);
-        IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
-        if (!desc.isSucceeded()) {
-          failedCnt++;
-          if (failed == null) {
-            failed = desc.toString(); // release after toString so that akey info is captured
-          }
+      descSet.remove(attachment);
+      IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
+      if (!desc.isSucceeded()) {
+        failedCnt++;
+        if (failed == null) {
+          failed = desc.toString(); // release after toString so that akey info is captured
         }
-        desc.release();
       }
+      desc.release();
     }
     if (failedCnt > 0) {
       throw new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);

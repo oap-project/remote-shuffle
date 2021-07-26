@@ -37,7 +37,8 @@ import scala.Tuple2;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -141,14 +142,14 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
   }
 
   @Override
-  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
+  public void prepare(LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                      long maxBytesInFlight, long maxReqSizeShuffleToMem,
                      ShuffleReadMetricsReporter metrics) {
     reader.prepare(partSizeMap, maxBytesInFlight, maxReqSizeShuffleToMem, metrics);
   }
 
   @Override
-  public Tuple2<Long, Integer> curMapReduceId() {
+  public Tuple2<String, Integer> curMapReduceId() {
     return reader.lastMapReduceIdForSubmit;
   }
 
@@ -385,7 +386,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
       entryIdx = 0;
       // fetch the next by self
       IODataDescSync desc = (IODataDescSync) createNextDesc(selfReadLimit);
-      Tuple2<Long, Integer> mapreduceId = reader.lastMapReduceIdForSubmit;
+      Tuple2<String, Integer> mapreduceId = reader.lastMapReduceIdForSubmit;
       try {
         if (fromOtherThread) {
           submitMore();
@@ -412,10 +413,10 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
       if (readSize > Integer.MAX_VALUE) {
         throw new IllegalArgumentException("readSize should not exceed " + Integer.MAX_VALUE);
       }
-      ((IODataDescSync)desc).addEntryForFetch(String.valueOf(mapId), offset, (int)readSize);
+      ((IODataDescSync)desc).addEntryForFetch(mapId, offset, (int)readSize);
     }
 
-    private ByteBuf getBySelf(IODataDescSync desc, Tuple2<Long, Integer> mapreduceId) throws IOException {
+    private ByteBuf getBySelf(IODataDescSync desc, Tuple2<String, Integer> mapreduceId) throws IOException {
       // get data by self, no need to release currentDesc
       if (desc == null) { // reach end
         return null;
@@ -512,8 +513,8 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
       return (ReadTaskContext) next;
     }
 
-    public Tuple2<Long, Integer> getMapReduceId() {
-      return (Tuple2<Long, Integer>) morePara;
+    public Tuple2<String, Integer> getMapReduceId() {
+      return (Tuple2<String, Integer>) morePara;
     }
   }
 

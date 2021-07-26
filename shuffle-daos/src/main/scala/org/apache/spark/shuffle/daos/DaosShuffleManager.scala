@@ -34,7 +34,7 @@ import org.apache.spark.{ShuffleDependency, SparkConf, SparkEnv, TaskContext}
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.shuffle._
 import org.apache.spark.shuffle.sort.BypassMergeSortShuffleHandle
-import org.apache.spark.shuffle.sort.SortShuffleManager.{FETCH_SHUFFLE_BLOCKS_IN_BATCH_ENABLED_KEY, MAX_SHUFFLE_OUTPUT_PARTITIONS_FOR_SERIALIZED_MODE}
+import org.apache.spark.shuffle.sort.SortShuffleManager.MAX_SHUFFLE_OUTPUT_PARTITIONS_FOR_SERIALIZED_MODE
 import org.apache.spark.util.{ShutdownHookManager, Utils}
 import org.apache.spark.util.collection.OpenHashSet
 
@@ -157,12 +157,10 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): DaosShuffleReader[K, C]
     = {
-    import DaosShuffleManager._
     val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(
       handle.shuffleId, startMapIndex, endMapIndex, startPartition, endPartition)
     new DaosShuffleReader(handle.asInstanceOf[BaseShuffleHandle[K, _, C]], blocksByAddress, context,
-      metrics, daosShuffleIO, SparkEnv.get.serializerManager,
-      shouldBatchFetch = canUseBatchFetch(startPartition, endPartition, context))
+      metrics, daosShuffleIO, SparkEnv.get.serializerManager)
   }
 
   override def unregisterShuffle(shuffleId: Int): Boolean = {
@@ -211,11 +209,5 @@ private object DaosShuffleManager extends Logging {
       logDebug(s"Can use serialized shuffle for shuffle $shufId")
       true
     }
-  }
-
-  def canUseBatchFetch(startPartition: Int, endPartition: Int, context: TaskContext): Boolean = {
-    val fetchMultiPartitions = endPartition - startPartition > 1
-    fetchMultiPartitions &&
-      context.getLocalProperty(FETCH_SHUFFLE_BLOCKS_IN_BATCH_ENABLED_KEY) == "true"
   }
 }

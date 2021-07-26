@@ -33,14 +33,12 @@ public class DaosShuffleOutputStream extends OutputStream {
 
   private int partitionId;
   private DaosWriter daosWriter;
-  private boolean needSpill;
 
   private long writtenBytes = 0L;
 
-  public DaosShuffleOutputStream(int partitionId, DaosWriter daosWriter, boolean needSpill) {
+  public DaosShuffleOutputStream(int partitionId, DaosWriter daosWriter) {
     this.partitionId = partitionId;
     this.daosWriter = daosWriter;
-    this.needSpill = needSpill;
   }
 
   @Override
@@ -59,11 +57,6 @@ public class DaosShuffleOutputStream extends OutputStream {
   public void write(byte[] b, int off, int len) {
     daosWriter.write(partitionId, b, off, len);
     writtenBytes += len;
-  }
-
-  public void resetMetrics() {
-    writtenBytes = 0;
-    daosWriter.resetMetrics(partitionId);
   }
 
   @Override

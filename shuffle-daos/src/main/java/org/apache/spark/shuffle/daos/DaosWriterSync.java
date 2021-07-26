@@ -106,13 +106,13 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   @Override
-  public void setNeedSpill(boolean needSpill) {
-    iw.setNeedSpill(needSpill);
+  public void enableSpill() {
+    iw.enableSpill();
   }
 
   @Override
-  public void setMerged(int partitionId) {
-    iw.setMerged(partitionId);
+  public void startMerging() {
+    iw.startMerging();
   }
 
   @Override
@@ -276,20 +276,20 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
 
     @Override
     public void flush(int partitionId) throws IOException {
-      flush(partitionId, true);
-    }
-
-    private void flush(int partitionId, boolean fullBufferOnly) throws IOException {
       NativeBuffer buffer = partitionBufArray[partitionId];
       if (buffer == null) {
         return;
       }
-      List<IODataDescSync> descList = buffer.createUpdateDescs(fullBufferOnly);
+      List<IODataDescSync> descList = buffer.createUpdateDescs();
+      flush(buffer, descList);
+    }
+
+    private void flush(NativeBuffer buffer, List<IODataDescSync> descList) throws IOException {
       for (IODataDescSync desc : descList) {
         totalWriteTimes++;
         if (config.isWarnSmallWrite() && buffer.getSubmittedSize() < config.getMinSize()) {
           LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
-              buffer.getSubmittedSize(), param.getShuffleId(), mapId, partitionId);
+              buffer.getSubmittedSize(), param.getShuffleId(), mapId, buffer.getPartitionIdKey());
         }
         if (executor == null) { // run write by self
           runBySelf(desc, buffer);
@@ -300,15 +300,25 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
 
     @Override
-    public void flushAll() throws IOException {
-      for (int i = 0; i < partitionBufArray.length; i++) {
-        flush(i, false);
-      }
+    protected void waitCompletion() throws IOException {
       try {
-        waitCompletion();
+        DaosWriterSync.this.waitCompletion();
       } catch (Exception e) {
         throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
       }
+    }
+
+    @Override
+    public void flushAll() throws IOException {
+      for (int i = 0; i < partitionBufArray.length; i++) {
+        NativeBuffer buffer = partitionBufArray[i];
+        if (buffer == null) {
+          return;
+        }
+        List<IODataDescSync> descList = buffer.createUpdateDescs(false);
+        flush(buffer, descList);
+      }
+      waitCompletion();
     }
 
     @Override

@@ -82,17 +82,29 @@ public abstract class DaosWriterBase implements DaosWriter {
   }
 
   @Override
-  public void setNeedSpill(boolean needSpill) {
-    this.needSpill = needSpill;
+  public void enableSpill() {
+    this.needSpill = true;
   }
 
   @Override
-  public void setMerged(int partitionId) {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      return;
+  public void startMerging() {
+    if (!needSpill) {
+      throw new IllegalStateException("startMerging called twice or non-spillable partition");
     }
-    buffer.setMerged();
+    needSpill = false;
+    // make sure all pending writes done, like async write
+    try {
+      waitCompletion();
+    } catch (IOException e) {
+      throw new IllegalStateException("failed to flush all existing writes", e);
+    }
+
+    for (NativeBuffer buffer : partitionBufArray) {
+      if (buffer == null) {
+        continue;
+      }
+      buffer.startMerging();
+    }
   }
 
   @Override
@@ -115,18 +127,10 @@ public abstract class DaosWriterBase implements DaosWriter {
 
   @Override
   public void resetMetrics(int partitionId) {
-    NativeBuffer buffer = partitionBufArray[partitionId];
-    if (buffer == null) {
-      return;
-    }
-    // make sure all pending writes done, like async write
-    try {
-      flushAll();
-    } catch (IOException e) {
-      throw new IllegalStateException("failed to flush all existing writes", e);
-    }
-    buffer.resetMetrics();
+
   }
+
+  protected abstract void waitCompletion() throws IOException;
 
   @Override
   public void flushAll() throws IOException {}

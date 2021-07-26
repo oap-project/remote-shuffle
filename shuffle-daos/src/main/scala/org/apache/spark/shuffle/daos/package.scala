@@ -197,7 +197,7 @@ package object daos {
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(5000)
+      .createWithDefault(60000)
 
   val SHUFFLE_DAOS_WRITE_WAIT_MS =
     ConfigBuilder("spark.shuffle.daos.write.wait.ms")
@@ -206,7 +206,7 @@ package object daos {
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(5000)
+      .createWithDefault(60000)
 
   val SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES =
     ConfigBuilder("spark.shuffle.daos.read.wait.timeout.times")

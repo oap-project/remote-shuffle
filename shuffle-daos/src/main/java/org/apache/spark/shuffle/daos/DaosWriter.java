@@ -73,16 +73,14 @@ public interface DaosWriter {
   void write(int partitionId, byte[] array, int offset, int len);
 
   /**
-   * set if need to spill buffer to DAOS or just append buffer.
-   *
-   * @param needSpill
+   * enable spilling to DAOS
    */
-  void setNeedSpill(boolean needSpill);
+  void enableSpill();
 
   /**
-   * mark it's final write after all spills being merged.
+   * mark it's merging phase. Records should be written to final akey, mapId.
    */
-  void setMerged(int partitionId);
+  void startMerging();
 
   /**
    * is spilling actual happened on specific partition.
@@ -297,7 +295,20 @@ public interface DaosWriter {
      * create list of {@link IODataDescSync} each of them has only one akey entry.
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
+     * @return list of {@link IODataDescSync}
+     * @throws IOException
+     */
+    public List<IODataDescSync> createUpdateDescs() throws IOException {
+      // make sure each spilled data don't span multiple mapId_<seq>s.
+      return createUpdateDescs(!needSpill);
+    }
+
+    /**
+     * create list of {@link IODataDescSync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
      * @param fullBufferOnly
+     * if write full buffer only to DAOS?
      * @return list of {@link IODataDescSync}
      * @throws IOException
      */
@@ -311,10 +322,11 @@ public interface DaosWriter {
       List<IODataDescSync> descList = new ArrayList<>(bufList.size());
       String cmapId = currentMapId();
       long bufSize = 0;
+      long offset = needSpill ? 0 : totalSize;
       for (int i = 0; i < nbrOfBuf; i++) {
         IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
         ByteBuf buf = bufList.get(i);
-        desc.addEntryForUpdate(cmapId, totalSize + bufSize, buf);
+        desc.addEntryForUpdate(cmapId, offset + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
@@ -329,7 +341,21 @@ public interface DaosWriter {
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
      * @param eqHandle
+     * @return list of {@link IOSimpleDDAsync}
+     * @throws IOException
+     */
+    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
+      // make sure each spilled data don't span multiple mapId_<seq>s.
+      return createUpdateDescAsyncs(eqHandle, !needSpill);
+    }
+
+    /**
+     * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
+     * @param eqHandle
      * @param fullBufferOnly
+     * if write full buffer only to DAOS?
      * @return list of {@link IOSimpleDDAsync}
      * @throws IOException
      */
@@ -343,13 +369,15 @@ public interface DaosWriter {
       List<IOSimpleDDAsync> descList = new ArrayList<>(nbrOfBuf);
       String cmapId = currentMapId();
       long bufSize = 0;
+      long offset = needSpill ? 0 : totalSize;
       for (int i = 0; i < nbrOfBuf; i++) {
         IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
         ByteBuf buf = bufList.get(i);
-        desc.addEntryForUpdate(cmapId, totalSize + bufSize, buf);
+        desc.addEntryForUpdate(cmapId, offset + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
+
       nbrOfSubmitted = nbrOfBuf;
       submittedSize = bufSize;
       addSpill(cmapId, bufSize);
@@ -374,16 +402,17 @@ public interface DaosWriter {
         }
       }
       // release==false, buffers will be released when tasks are executed and consumed
-      int size = bufList.size();
-      ByteBuf lastBuf = size > 0 ? bufList.get(size - 1) : null;
+      int nbrOfBufs = bufList.size();
+      ByteBuf lastBuf = nbrOfBufs > 0 ? bufList.get(nbrOfBufs - 1) : null;
       bufList.clear();
       idx = -1;
-      if (submittedSize < size) { // add back last buffer
+      if (nbrOfSubmitted < nbrOfBufs) { // add back last buffer
         bufList.add(lastBuf);
         idx = 0;
       }
       totalSize += submittedSize;
       submittedSize = 0;
+      nbrOfSubmitted = 0;
     }
 
     @Override
@@ -403,20 +432,24 @@ public interface DaosWriter {
       return submittedSize;
     }
 
+    public String getPartitionIdKey() {
+      return partitionIdKey;
+    }
+
     public List<ByteBuf> getBufList() {
       return bufList;
     }
 
     public boolean isSpilled() {
-      return seq > 0;
+      return !spillInfos.isEmpty();
     }
 
-    public void resetMetrics() {
+    /**
+     * prepare for caching merged records
+     */
+    public void startMerging() {
       reset(true);
       totalSize = 0;
-    }
-
-    public void setMerged() {
       this.needSpill = false;
       this.seq = 0;
     }

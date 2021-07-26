@@ -20,17 +20,17 @@ public abstract class DaosReaderBase implements DaosReader {
 
   protected ReaderConfig config;
 
-  protected LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap;
+  protected LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap;
 
-  protected Iterator<Tuple2<Long, Integer>> mapIdIt;
+  protected Iterator<Tuple2<String, Integer>> mapIdIt;
 
   protected ShuffleReadMetricsReporter metrics;
 
   protected long currentPartSize;
 
-  protected Tuple2<Long, Integer> curMapReduceId;
-  protected Tuple2<Long, Integer> lastMapReduceIdForSubmit;
-  protected Tuple2<Long, Integer> lastMapReduceIdForReturn;
+  protected Tuple2<String, Integer> curMapReduceId;
+  protected Tuple2<String, Integer> lastMapReduceIdForSubmit;
+  protected Tuple2<String, Integer> lastMapReduceIdForReturn;
   protected int curOffset;
   protected boolean nextMap;
 
@@ -66,7 +66,7 @@ public abstract class DaosReaderBase implements DaosReader {
   }
 
   @Override
-  public void prepare(LinkedHashMap<Tuple2<Long, Integer>, Tuple2<Long, BlockId>> partSizeMap,
+  public void prepare(LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
                       long maxBytesInFlight, long maxReqSizeShuffleToMem, ShuffleReadMetricsReporter metrics) {
     this.partSizeMap = partSizeMap;
     this.config = config.copy(maxBytesInFlight, maxReqSizeShuffleToMem);
@@ -76,7 +76,7 @@ public abstract class DaosReaderBase implements DaosReader {
   }
 
   @Override
-  public Tuple2<Long, Integer> curMapReduceId() {
+  public Tuple2<String, Integer> curMapReduceId() {
     return lastMapReduceIdForSubmit;
   }
 
@@ -149,14 +149,14 @@ public abstract class DaosReaderBase implements DaosReader {
   protected IODataDescBase createNextDesc(long sizeLimit) throws IOException {
     long remaining = sizeLimit;
     int reduceId = -1;
-    long mapId;
+    String mapId;
     IODataDescBase desc = null;
     while (remaining > 0) {
       nextMapReduceId();
       if (curMapReduceId == null) {
         break;
       }
-      if (reduceId > 0 && curMapReduceId._2 != reduceId) { // make sure entries under same reduce
+      if (reduceId > 0 & (curMapReduceId._2 != reduceId)) { // make sure entries under same reduce
         break;
       }
       reduceId = curMapReduceId._2;
@@ -174,7 +174,7 @@ public abstract class DaosReaderBase implements DaosReader {
       if (desc == null) {
         desc = createFetchDataDesc(String.valueOf(reduceId));
       }
-      addFetchEntry(desc, String.valueOf(mapId), offset, readSize);
+      addFetchEntry(desc, mapId, offset, readSize);
       remaining -= readSize;
     }
     return desc;

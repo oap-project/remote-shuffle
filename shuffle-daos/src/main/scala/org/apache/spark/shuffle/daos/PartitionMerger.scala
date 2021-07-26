@@ -31,19 +31,21 @@ import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.executor.TempShuffleReadMetrics
+import org.apache.spark.internal.Logging
+import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
 import org.apache.spark.shuffle.daos.DaosWriter.SpillInfo
 import org.apache.spark.shuffle.daos.MapPartitionsWriter.SizeAware
-import org.apache.spark.storage.{BlockId, TempLocalBlockId}
+import org.apache.spark.storage.{BlockId, TempShuffleBlockId}
 
 class PartitionMerger[K, V, C] (
   val part: SizeAware[K, V, C],
   val io: DaosShuffleIO,
-  val conf: ReaderConfig) {
+  val serializer: Serializer,
+  val conf: ReaderConfig) extends Logging {
 
   def mergeAndOutput: Long = {
     val pw = part.pairsWriter
-    pw.resetMetrics
     val infoList = part.daosWriter.getSpillInfo(part.partitionId)
     val nbrOfSpill = infoList.size()
     var totalSpilled = 0L
@@ -52,10 +54,9 @@ class PartitionMerger[K, V, C] (
       new SpillIterator[K, C](info, nbrOfSpill)
     }) ++ Seq(part.iterator)
     val it = mergeWithAggregation(iterators, part.aggregator.get.mergeCombiners, part.keyComparator.get)
-    pw.setMerged
     while (it.hasNext) {
       val item = it.next()
-      part.pairsWriter.writeAutoFlush(item._1, item._2)
+      pw.writeAutoFlush(item._1, item._2)
     }
     pw.flush
     totalSpilled
@@ -150,11 +151,10 @@ class PartitionMerger[K, V, C] (
     import PartitionMerger._
 
     private val reader = io.getDaosReader(part.shuffleId)
-    private val map = new java.util.LinkedHashMap[(java.lang.Long, Integer), (java.lang.Long, BlockId)](1)
-    map.put((java.lang.Long.valueOf(info.getMapId), Integer.valueOf(info.getReduceId)),
+    private val map = new java.util.LinkedHashMap[(String, Integer), (java.lang.Long, BlockId)](1)
+    map.put((info.getMapId, Integer.valueOf(info.getReduceId)),
       (info.getSize, dummyBlockId))
     private val serializerManager = SparkEnv.get.serializerManager
-    private val serializer = SparkEnv.get.serializer
     private val daosStream = new DaosShuffleInputStream(reader, map, conf.getMaxMem/nbrOfSpill, conf.getMaxMem,
       dummyReadMetrics)
     private val wrappedStream = serializerManager.wrapStream(dummyBlockId, daosStream)
@@ -177,6 +177,6 @@ class PartitionMerger[K, V, C] (
 }
 
 object PartitionMerger {
-  val dummyBlockId = TempLocalBlockId(UUID.randomUUID())
+  val dummyBlockId = TempShuffleBlockId(UUID.randomUUID())
   val dummyReadMetrics = new TempShuffleReadMetrics
 }
