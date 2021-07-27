@@ -43,8 +43,6 @@ private[spark] trait SizeSampler {
   /** Total number of insertions and updates into the map since the last resetSamples(). */
   private var numUpdates: Long = _
 
-  private var bytesPerUpdate: Double = _
-
   private var stat: SampleStat = _
 
   private var buffer: Boolean = _
@@ -64,7 +62,7 @@ private[spark] trait SizeSampler {
   protected def resetSamples(): Unit = {
     numUpdates = 1
     samples.clear()
-    takeSample(numUpdates)
+    takeSample
   }
 
   protected def afterUpdate(): Unit = {
@@ -72,7 +70,7 @@ private[spark] trait SizeSampler {
     curSize += 1
     stat.incNumUpdates
     if (stat.needSample) {
-      takeSample(numUpdates)
+      takeSample
     }
   }
 
@@ -89,27 +87,21 @@ private[spark] trait SizeSampler {
   /**
    * Take a new sample of the current collection's size.
    */
-  protected def takeSample(nbrOfElements: Long): Unit = {
-    samples.enqueue(Sample(SizeEstimator.estimate(this), nbrOfElements))
+  protected def takeSample: Unit = {
+    samples.enqueue(Sample(SizeEstimator.estimate(this), numUpdates))
     // Only use the last two samples to extrapolate
     if (samples.size > 2) {
       samples.dequeue()
     }
-    var updateDelta = 0L
     val bytesDelta = samples.toList.reverse match {
       case latest :: previous :: _ =>
-        updateDelta = latest.numUpdates - previous.numUpdates
-        if (updateDelta != 0) (latest.size - previous.size).toDouble / updateDelta
+        val updateDelta = latest.numUpdates - previous.numUpdates
+        if (buffer) (latest.size - previous.size).toDouble / updateDelta
         else latest.size / latest.numUpdates // possible case for map-combine
       // If fewer than 2 samples, assume no change
       case _ => 0
     }
-    bytesPerUpdate = math.max(0, bytesDelta)
-    if (buffer) {
-      stat.updateStatBuffer(bytesPerUpdate, updateDelta)
-    } else {
-      stat.updateStatMap(bytesPerUpdate, updateDelta)
-    }
+    stat.updateStat(bytesDelta)
   }
 
   /**
@@ -117,9 +109,8 @@ private[spark] trait SizeSampler {
    */
   def estimateSize(): Long = {
     assert(samples.nonEmpty)
-    val bpu = if (bytesPerUpdate == 0) stat.bytesPerUpdate else bytesPerUpdate
-    val nbr = if (buffer) numUpdates - samples.last.numUpdates else size
-    val extrapolatedDelta = bpu * nbr
+    val nbr = numUpdates - samples.last.numUpdates
+    val extrapolatedDelta = stat.bytesPerUpdate * nbr
     (samples.last.size + extrapolatedDelta).toLong
   }
 }
@@ -132,25 +123,12 @@ private[spark] class SampleStat {
   private val SAMPLE_GROWTH_RATE = 1.1
 
   private[daos] var numUpdates: Long = 0
-  private[daos] var totalElements: Long = 0
   private[daos] var lastNumUpdates: Long = 0
   private[daos] var nextSampleNum: Long = 1
   private[daos] var bytesPerUpdate: Double = 0
 
-  def updateStatBuffer(partBpu: Double, partUpdateDelta: Long): Unit = {
-    bytesPerUpdate = ((numUpdates - partUpdateDelta) * bytesPerUpdate +
-      partUpdateDelta * partBpu
-      ) / numUpdates
-    lastNumUpdates = numUpdates
-    nextSampleNum = math.ceil(numUpdates * SAMPLE_GROWTH_RATE).toLong
-  }
-
-  def updateStatMap(partBpu: Double, added: Long): Unit = {
-    val newTotal = totalElements + added
-    bytesPerUpdate = (totalElements * bytesPerUpdate +
-      added * partBpu
-      ) / newTotal
-    totalElements = newTotal
+  def updateStat(partBpu: Double): Unit = {
+    bytesPerUpdate = partBpu
     lastNumUpdates = numUpdates
     nextSampleNum = math.ceil(numUpdates * SAMPLE_GROWTH_RATE).toLong
   }

@@ -53,6 +53,11 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       config.SHUFFLE_USE_OLD_FETCH_PROTOCOL.key)
   }
 
+  if (conf.get(config.MEMORY_OFFHEAP_ENABLED)) {
+    throw new IllegalArgumentException("DaosShuffleManager doesn't support offheap memory in MemoryManager. Please" +
+      " disable " + config.MEMORY_OFFHEAP_ENABLED)
+  }
+
   def findHadoopFs: Method = {
     try {
       val fsClass = Utils.classForName("org.apache.hadoop.fs.FileSystem")

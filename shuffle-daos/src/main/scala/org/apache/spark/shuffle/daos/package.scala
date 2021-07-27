@@ -54,9 +54,9 @@ package object daos {
       .doc("initial size of total in-memory buffer for each map output, in MiB")
       .version("3.0.0")
       .bytesConf(ByteUnit.MiB)
-      .checkValue(v => v > 10,
-        s"The initial total buffer size must be bigger than 10m.")
-      .createWithDefaultString("80m")
+      .checkValue(v => v > 0,
+        s"The initial total buffer size must be bigger than 0.")
+      .createWithDefaultString("5m")
 
   val SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT =
     ConfigBuilder("spark.shuffle.daos.write.buffer.percentage")
@@ -111,7 +111,7 @@ package object daos {
       .bytesConf(ByteUnit.KiB)
       .checkValue(v => v > 0,
         s"The DAOS read minimum size must be positive")
-      .createWithDefaultString("2048k")
+      .createWithDefaultString("128k")
 
   val SHUFFLE_DAOS_READ_MAX_BYTES_IN_FLIGHT =
     ConfigBuilder("spark.shuffle.daos.read.maxbytes.inflight")
@@ -248,6 +248,6 @@ package object daos {
         " 10000 records by default.")
       .version("3.0.0")
       .intConf
-      .checkValue(v => v >= 100, "total interval should be bigger than 100.")
-      .createWithDefault(10000)
+      .checkValue(v => v > 0, "total interval should be bigger than 0.")
+      .createWithDefault(32)
 }

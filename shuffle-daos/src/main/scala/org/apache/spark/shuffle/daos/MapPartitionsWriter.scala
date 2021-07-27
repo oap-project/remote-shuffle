@@ -25,14 +25,12 @@ package org.apache.spark.shuffle.daos
 
 import java.util.Comparator
 
-import MapPartitionsWriter._
-
 import org.apache.spark._
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.ShuffleWriteMetricsReporter
-import org.apache.spark.shuffle.daos.DaosReader.ReaderConfig
+import org.apache.spark.shuffle.daos.MapPartitionsWriter._
 
 class MapPartitionsWriter[K, V, C](
     shuffleId: Int,
@@ -145,7 +143,6 @@ class MapPartitionsWriter[K, V, C](
     private val forceWritePct = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT)
     private val partMoveInterval = conf.get(SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL)
     private val totalWriteInterval = conf.get(SHUFFLE_DAOS_WRITE_TOTAL_INTERVAL)
-    private val totalPartRatio = totalWriteInterval / partMoveInterval
     private[daos] val sampleStat = new SampleStat
 
     // track spill status
@@ -166,18 +163,11 @@ class MapPartitionsWriter[K, V, C](
       daosWriter.enableSpill()
     }
 
-    val readerConfig = new DaosReader.ReaderConfig(conf)
-
     if (log.isDebugEnabled()) {
       log.debug("totalBufferInitial: " + totalBufferInitial)
       log.debug("forceWritePct: " + forceWritePct)
       log.debug("partMoveInterval: " + partMoveInterval)
       log.debug("totalWriteInterval: " + totalWriteInterval)
-    }
-
-    if (totalPartRatio == 0) {
-      throw new IllegalArgumentException("totalWriteInterval (" + totalWriteInterval + ") should be no less than" +
-        " partMoveInterval (" + partMoveInterval)
     }
 
     private var totalSize = 0L
@@ -244,8 +234,6 @@ class MapPartitionsWriter[K, V, C](
         head.next.prev = node
         head.next = node
         node.prev = head
-        // set largestSize
-        largestSize = head.next.estimatedSize
       }
     }
 
@@ -295,17 +283,45 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    private def writeFromHead: Long = {
+    /**
+     * move range of nodes from start to until nextNotFlushed which is before the end
+     * @param nextNotFlushed
+     */
+    private def moveFromStartToLast(nextNotFlushed: Linked[K, V, C] with SizeAware[K, V, C]): Unit = {
+      val start = head.next
+      val last = nextNotFlushed.prev
+      if (start != last) {
+        // de-link
+        head.next = nextNotFlushed
+        nextNotFlushed.prev = head
+        // move to last
+        last
+        nextNotFlushed.next = start
+        start.prev = nextNotFlushed
+        last.next = end
+        end.prev = last
+      } else {
+        moveToLast(start)
+      }
+    }
+
+    /**
+     * At least one node being written.
+     * @param size
+     * @return
+     */
+    private def writeFromHead(size: Long): Long = {
       var buffer = head.next
-      var count = 0
       var totalWritten = 0L
-      while (buffer != end && count < totalPartRatio) {
-        totalWritten += buffer.estimatedSize
-        buffer.writeAndFlush
-        val emptyBuffer = buffer
+      while ((buffer != end) & totalWritten < size) {
+        totalWritten += buffer.writeAndFlush
         buffer = buffer.next
-        moveToLast(emptyBuffer)
-        count += 1
+      }
+      if (buffer != end) {
+        largestSize = buffer.estimatedSize
+        moveFromStartToLast(buffer)
+      } else {
+        largestSize = 0L
       }
       totalWritten
     }
@@ -316,8 +332,8 @@ class MapPartitionsWriter[K, V, C](
         val memRequest = limit - memoryLimit
         val granted = acquireMemory(memRequest)
         memoryLimit += granted
-        if (totalSize >= memoryLimit) {
-          writeFromHead
+        if (totalSize > memoryLimit) {
+          writeFromHead(totalSize - totalBufferInitial)
         }
       }
     }
@@ -366,8 +382,8 @@ class MapPartitionsWriter[K, V, C](
       }
     }
 
-    def spill(size: Long, trigger: MemoryConsumer): Long = {
-      writeFromHead
+    override def spill(size: Long, trigger: MemoryConsumer): Long = {
+      0L
     }
   }
 
@@ -389,7 +405,7 @@ class MapPartitionsWriter[K, V, C](
       afterUpdate(_estSize)
     }
 
-    def numOfRecords: Int = map.numOfRecords
+    override def numOfRecords: Int = map.numOfRecords
 
     def reset: Unit = {
       map = new SizeSamplerAppendOnlyMap[K, C](parent.sampleStat)
@@ -419,7 +435,7 @@ class MapPartitionsWriter[K, V, C](
       afterUpdate(_estSize)
     }
 
-    def numOfRecords: Int = buffer.numOfRecords
+    override def numOfRecords: Int = buffer.numOfRecords
 
     def reset: Unit = {
       buffer = new SizeSamplerPairBuffer[K, C](parent.sampleStat)
@@ -438,7 +454,7 @@ object MapPartitionsWriter {
 
     protected var writeCount = 0
 
-    protected var totalWrittenMem = 0L
+    protected var totalSpillMem = 0L
 
     protected var lastSize = 0L
 
@@ -462,13 +478,13 @@ object MapPartitionsWriter {
 
     val serializer = parent.serializer
 
-    val readerConfig: ReaderConfig = parent.readerConfig
+    def numOfRecords: Int
 
     def estimatedSize: Long
 
     def iterator: Iterator[(K, C)]
 
-    def spillMemSize: Long = totalWrittenMem
+    def spillMemSize: Long = totalSpillMem
 
     def reset: Unit
 
@@ -498,34 +514,44 @@ object MapPartitionsWriter {
       if (lastPairsWriter != null) {
         lastPairsWriter.close
       }
-      lastPairsWriter = if (!(parent.needSpill & !parent.merging)) pairsDefaultWriter else createSpillPairsWriter
+      lastPairsWriter = if ((!parent.needSpill) | parent.merging) pairsDefaultWriter else createSpillPairsWriter
       lastPairsWriter
     }
 
-    private def writeAndFlush(memory: Long): Unit = {
+    /**
+     * supposed to be non-empty buffer.
+     * @param memory
+     * @return
+     */
+    private def writeAndFlush(memory: Long): Long = {
       var count = 0
       val pw = pairsWriter
       iterator.foreach(p => {
         pw.write(p._1, p._2)
         count += 1
       })
-      if (count > 0) {
-        pw.flush // force write
-        writeCount += count
-        lastSize = 0
-        totalWrittenMem += memory
-        releaseMemory(memory)
-        reset
+      pw.flush // force write
+      writeCount += count
+      lastSize = 0
+      if (pw != pairsDefaultWriter) {
+        totalSpillMem += memory
       }
+      releaseMemory(memory)
+      reset
+      memory
     }
 
-    def writeAndFlush: Unit = {
-      writeAndFlush(estimatedSize)
+    def writeAndFlush: Long = {
+      if (numOfRecords > 0) {
+        writeAndFlush(estimatedSize)
+      } else {
+        0L
+      }
     }
 
     def merge: Long = {
       if (daosWriter.isSpilled(partitionId)) { // partition actually spilled ?
-        val merger = new PartitionMerger[K, V, C](this, shuffleIO, serializer, readerConfig)
+        val merger = new PartitionMerger[K, V, C](this, shuffleIO, serializer)
         merger.mergeAndOutput
       } else {
         writeAndFlush

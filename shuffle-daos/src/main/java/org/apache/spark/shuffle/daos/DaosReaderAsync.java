@@ -103,9 +103,11 @@ public class DaosReaderAsync extends DaosReaderBase {
     do {
       eq.pollCompleted(completedList, IOSimpleDDAsync.class, runningDescSet, runningDescSet.size(),
           timeOutMs - dur);
-      dur = System.currentTimeMillis() - start;
-      if (dur > timeOutMs) {
-        throw new TimedOutException("timed out after " + dur);
+      if (completedList.isEmpty()) {
+        dur = System.currentTimeMillis() - start;
+        if (dur > timeOutMs) {
+          throw new TimedOutException("timed out after " + dur);
+        }
       }
     } while (completedList.isEmpty());
     verifyCompleted();
