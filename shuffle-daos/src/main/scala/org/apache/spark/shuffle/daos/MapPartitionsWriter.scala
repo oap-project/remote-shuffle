@@ -77,9 +77,6 @@ class MapPartitionsWriter[K, V, C](
 
   private[this] var _elementsRead = 0
 
-  private var _writtenBytes = 0L
-  def writtenBytes: Long = _writtenBytes
-
   def peakMemoryUsedBytes: Long = writeBuffer.peakSize
 
   def insertAll(records: Iterator[Product2[K, V]]): Unit = {
@@ -356,7 +353,10 @@ class MapPartitionsWriter[K, V, C](
     def flushAll: Unit = {
       val buffer = if (comparator.isDefined) partitionMapArray else partitionBufferArray
       if (!needSpill) {
-        buffer.foreach(e => e.writeAndFlush)
+        buffer.foreach(e => {
+          e.writeAndFlush
+          e.close
+        })
       } else {
         // no more spill for existing in-mem data
         daosWriter.startMerging()
@@ -374,9 +374,8 @@ class MapPartitionsWriter[K, V, C](
     }
 
     def close: Unit = {
-      val buffer = if (comparator.isDefined) partitionMapArray else partitionBufferArray
-      buffer.foreach(b => b.close)
       val allocated = memoryLimit - totalBufferInitial
+      // partitions already closed in flushAll
       if (allocated > 0) {
         freeMemory(allocated)
       }
@@ -452,13 +451,9 @@ object MapPartitionsWriter {
 
   private[daos] trait SizeAware[K, V, C] {
 
-    protected var writeCount = 0
-
     protected var totalSpillMem = 0L
 
     protected var lastSize = 0L
-
-    protected var lastPairsWriter: PartitionOutput[K, V, C] = null
 
     val pairsDefaultWriter: PartitionOutput[K, V, C]
 
@@ -488,15 +483,6 @@ object MapPartitionsWriter {
 
     def reset: Unit
 
-    def createSpillPairsWriter: PartitionOutput[K, V, C] = {
-      if (!parent.merging) { // for spilling data
-        new PartitionOutput[K, V, C](partitionId, parent, parent.spillWriteMetrics)
-      } else {
-        // for writing pairs after merge or without spill
-        pairsDefaultWriter
-      }
-    }
-
     def updateTotalSize(estSize: Long): Unit = {
       val diff = estSize - lastSize
       if (diff > 0) {
@@ -511,33 +497,34 @@ object MapPartitionsWriter {
     }
 
     def pairsWriter: PartitionOutput[K, V, C] = {
-      if (lastPairsWriter != null) {
-        lastPairsWriter.close
-      }
-      lastPairsWriter = if ((!parent.needSpill) | parent.merging) pairsDefaultWriter else createSpillPairsWriter
-      lastPairsWriter
+      if ((!parent.needSpill) | parent.merging) pairsDefaultWriter
+        else new PartitionOutput[K, V, C](partitionId, parent, parent.spillWriteMetrics)
+    }
+
+    def postFlush(memory: Long): Unit = {
+      lastSize = 0
+      releaseMemory(memory)
+      reset
     }
 
     /**
      * supposed to be non-empty buffer.
+     *
      * @param memory
      * @return
      */
     private def writeAndFlush(memory: Long): Long = {
-      var count = 0
       val pw = pairsWriter
       iterator.foreach(p => {
-        pw.write(p._1, p._2)
-        count += 1
+        pw.writeAutoFlush(p._1, p._2)
       })
-      pw.flush // force write
-      writeCount += count
-      lastSize = 0
-      if (pw != pairsDefaultWriter) {
+      if (pw == pairsDefaultWriter) {
+        pw.flush // force write
+      } else {
+        pw.close // writer for spill, so flush all and close
         totalSpillMem += memory
       }
-      releaseMemory(memory)
-      reset
+      postFlush(memory)
       memory
     }
 
@@ -552,9 +539,13 @@ object MapPartitionsWriter {
     def merge: Long = {
       if (daosWriter.isSpilled(partitionId)) { // partition actually spilled ?
         val merger = new PartitionMerger[K, V, C](this, shuffleIO, serializer)
-        merger.mergeAndOutput
+        val spilledSize = merger.mergeAndOutput
+        postFlush(estimatedSize)
+        close
+        spilledSize
       } else {
         writeAndFlush
+        close
         0L
       }
     }
@@ -565,10 +556,6 @@ object MapPartitionsWriter {
     }
 
     def close: Unit = {
-      if (lastPairsWriter != null & lastPairsWriter != pairsDefaultWriter) {
-        lastPairsWriter.close
-        lastPairsWriter = null
-      }
       pairsDefaultWriter.close
     }
   }

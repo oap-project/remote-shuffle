@@ -64,6 +64,7 @@ class PartitionOutput[K, V, C](
 
   def open: Unit = {
     ds = new DaosShuffleOutputStream(partitionId, parent.daosWriter)
+    parent.daosWriter.incrementSeq(partitionId)
     ts = new TimeTrackingOutputStream(writeMetrics, ds)
     bs = serializerManager.wrapStream(ShuffleBlockId(parent.shuffleId, mapId, partitionId), ts)
     objOut = serializerInstance.serializeStream(bs)

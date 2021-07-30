@@ -78,6 +78,13 @@ public interface DaosWriter {
   void enableSpill();
 
   /**
+   * increment seq for spilling data.
+   *
+   * @param partitionId
+   */
+  void incrementSeq(int partitionId);
+
+  /**
    * mark it's merging phase. Records should be written to final akey, mapId.
    */
   void startMerging();
@@ -99,7 +106,7 @@ public interface DaosWriter {
   long[] getPartitionLens(int numPartitions);
 
   /**
-   * Flush specific partition to DAOS.
+   * Flush specific partition to DAOS. Some of non-full buffers may not flushed to DAOS.
    *
    * @param partitionId
    * @throws IOException
@@ -107,7 +114,15 @@ public interface DaosWriter {
   void flush(int partitionId) throws IOException;
 
   /**
-   * Flush all pending writes.
+   * Flush specific partition to DAOS. All buffers are flushed not matter whether it's spill or not.
+   *
+   * @param partitionId
+   * @throws IOException
+   */
+  void flushAll(int partitionId) throws IOException;
+
+  /**
+   * Flush all pending writes and wait for completion if it's async op.
    *
    * @throws IOException
    */
@@ -278,8 +293,8 @@ public interface DaosWriter {
     }
 
     private String currentMapId() {
-      if (needSpill) {
-        seq++;
+      if (needSpill & seq == 0) {
+        seq = 1;
       }
       return seq > 0 ? mapId + "_" + seq : mapId;
     }
@@ -293,7 +308,7 @@ public interface DaosWriter {
      */
     public List<IODataDescSync> createUpdateDescs() throws IOException {
       // make sure each spilled data don't span multiple mapId_<seq>s.
-      return createUpdateDescs(!needSpill);
+      return createUpdateDescs(true);
     }
 
     /**
@@ -312,7 +327,7 @@ public interface DaosWriter {
       }
       nbrOfBuf -= fullBufferOnly ? 1 : 0;
 
-      List<IODataDescSync> descList = new ArrayList<>(bufList.size());
+      List<IODataDescSync> descList = new ArrayList<>(nbrOfBuf);
       String cmapId = currentMapId();
       long bufSize = 0;
       long offset = needSpill ? 0 : totalSize;
@@ -339,7 +354,7 @@ public interface DaosWriter {
      */
     public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
       // make sure each spilled data don't span multiple mapId_<seq>s.
-      return createUpdateDescAsyncs(eqHandle, !needSpill);
+      return createUpdateDescAsyncs(eqHandle, true);
     }
 
     /**
@@ -445,6 +460,12 @@ public interface DaosWriter {
       totalSize = 0;
       this.needSpill = false;
       this.seq = 0;
+    }
+
+    public void incrementSeq() {
+      if (needSpill) {
+        seq++;
+      }
     }
   }
 

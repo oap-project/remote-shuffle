@@ -31,6 +31,7 @@ import org.apache.spark.storage.{BlockId, BlockManagerId}
 import org.apache.spark.util.CompletionIterator
 import org.apache.spark.util.collection.ExternalSorter
 
+
 class DaosShuffleReader[K, C](
     handle: BaseShuffleHandle[K, _, C],
     blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
@@ -47,7 +48,7 @@ class DaosShuffleReader[K, C](
   private val daosReader = shuffleIO.getDaosReader(handle.shuffleId)
 
   override def read(): Iterator[Product2[K, C]] = {
-    val maxBytesInFlight = conf.get(SHUFFLE_DAOS_READ_MAX_BYTES_IN_FLIGHT)
+    val maxBytesInFlight = conf.get(SHUFFLE_DAOS_READ_MAX_BYTES_IN_FLIGHT) * 1024
     val wrappedStreams = new ShufflePartitionIterator(
       context,
       blocksByAddress,

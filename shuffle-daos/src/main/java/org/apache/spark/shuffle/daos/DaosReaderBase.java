@@ -106,9 +106,7 @@ public abstract class DaosReaderBase implements DaosReader {
         entryIdx++;
       }
       entryIdx = 0;
-      // no need to release desc since all its entries are released in tryCurrentEntry and
-      // internal buffers are released after object.fetch
-      // reader.close will release all in case of failure
+      currentDesc.release();
       currentDesc = null;
     }
     return null;

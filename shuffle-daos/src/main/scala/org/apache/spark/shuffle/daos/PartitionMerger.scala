@@ -45,18 +45,17 @@ class PartitionMerger[K, V, C] (
   def mergeAndOutput: Long = {
     val pw = part.pairsWriter
     val infoList = part.daosWriter.getSpillInfo(part.partitionId)
-    val nbrOfSpill = infoList.size()
     var totalSpilled = 0L
     val iterators = infoList.asScala.map(info => {
       totalSpilled += info.getSize
-      new SpillIterator[K, C](info, nbrOfSpill)
+      new SpillIterator[K, C](info)
     }) ++ Seq(part.iterator)
     val it = mergeWithAggregation(iterators, part.aggregator.get.mergeCombiners, part.keyComparator.get)
     while (it.hasNext) {
       val item = it.next()
       pw.writeAutoFlush(item._1, item._2)
     }
-    pw.flush
+    pw.close
     totalSpilled
   }
 
@@ -143,8 +142,7 @@ class PartitionMerger[K, V, C] (
   }
 
   class SpillIterator[K, C] (
-    val info: SpillInfo,
-    val nbrOfSpill: Int) extends Iterator[Product2[K, C]] {
+    val info: SpillInfo) extends Iterator[Product2[K, C]] {
 
     import PartitionMerger._
 
@@ -163,7 +161,6 @@ class PartitionMerger[K, V, C] (
       val ret = it.hasNext
       if (!ret) {
         deStream.close()
-        daosStream.close(true)
       }
       ret
     }

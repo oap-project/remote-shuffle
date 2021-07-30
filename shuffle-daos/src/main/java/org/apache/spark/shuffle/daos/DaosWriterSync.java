@@ -116,6 +116,11 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   @Override
+  public void incrementSeq(int partitionId) {
+    iw.incrementSeq(partitionId);
+  }
+
+  @Override
   public boolean isSpilled(int partitionId) {
     return iw.isSpilled(partitionId);
   }
@@ -128,6 +133,11 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   @Override
   public void flush(int partitionId) throws IOException {
     iw.flush(partitionId);
+  }
+
+  @Override
+  public void flushAll(int partitionId) throws IOException {
+    iw.flushAll();
   }
 
   @Override
@@ -276,6 +286,16 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
         return;
       }
       List<IODataDescSync> descList = buffer.createUpdateDescs();
+      flush(buffer, descList);
+    }
+
+    @Override
+    public void flushAll(int partitionId) throws IOException {
+      NativeBuffer buffer = partitionBufArray[partitionId];
+      if (buffer == null) {
+        return;
+      }
+      List<IODataDescSync> descList = buffer.createUpdateDescs(false);
       flush(buffer, descList);
     }
 

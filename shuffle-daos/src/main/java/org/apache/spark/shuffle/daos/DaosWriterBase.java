@@ -87,6 +87,14 @@ public abstract class DaosWriterBase implements DaosWriter {
   }
 
   @Override
+  public void incrementSeq(int partitionId) {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer != null) {
+      buffer.incrementSeq();
+    }
+  }
+
+  @Override
   public void startMerging() {
     if (!needSpill) {
       throw new IllegalStateException("startMerging called twice or non-spillable partition");
@@ -133,7 +141,7 @@ public abstract class DaosWriterBase implements DaosWriter {
   @Override
   public long[] getPartitionLens(int numPartitions) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("partition map size: " + partitionBufArray.length);
+      LOG.debug("partition map " + mapId +", size: " + partitionBufArray.length);
       for (int i = 0; i < numPartitions; i++) {
         NativeBuffer nb = partitionBufArray[i];
         if (nb != null) {

@@ -179,6 +179,10 @@ public class DaosReaderAsync extends DaosReaderBase {
     }
     readyList.forEach(desc -> desc.release());
     runningDescSet.forEach(desc -> desc.release());
+    if (currentDesc != null) {
+      currentDesc.release();
+      currentDesc = null;
+    }
     if (e != null) {
       throw e;
     }

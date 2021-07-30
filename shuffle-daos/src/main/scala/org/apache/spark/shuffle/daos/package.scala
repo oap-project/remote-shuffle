@@ -101,8 +101,8 @@ package object daos {
       .version("3.0.0")
       .intConf
       .checkValue(v => v >= 100,
-      s"number of records to flush should be no more than 100")
-      .createWithDefault(10000)
+      s"number of records to flush should be more than 100")
+      .createWithDefault(1000)
 
   val SHUFFLE_DAOS_READ_MINIMUM_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.minimum")

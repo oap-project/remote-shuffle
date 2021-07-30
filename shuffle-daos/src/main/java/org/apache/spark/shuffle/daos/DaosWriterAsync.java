@@ -62,26 +62,34 @@ public class DaosWriterAsync extends DaosWriterBase {
     flush(buffer, descList);
   }
 
-  private void flush(NativeBuffer buffer, List<IOSimpleDDAsync> descList) throws IOException {
-    if (descList.isEmpty()) {
-      buffer.reset(true);
+  @Override
+  public void flushAll(int partitionId) throws IOException {
+    NativeBuffer buffer = partitionBufArray[partitionId];
+    if (buffer == null) {
       return;
     }
-    for (IOSimpleDDAsync desc : descList) {
-      DaosEventQueue.Event event = acquireEvent();
-      descSet.add(desc);
-      desc.setEvent(event);
-      try {
-        object.updateAsync(desc);
-      } catch (Exception e) {
-        desc.release();
-        descSet.remove(desc);
-        throw e;
+    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), false);
+    flush(buffer, descList);
+  }
+
+  private void flush(NativeBuffer buffer, List<IOSimpleDDAsync> descList) throws IOException {
+    if (!descList.isEmpty()) {
+      for (IOSimpleDDAsync desc : descList) {
+        DaosEventQueue.Event event = acquireEvent();
+        descSet.add(desc);
+        desc.setEvent(event);
+        try {
+          object.updateAsync(desc);
+        } catch (Exception e) {
+          desc.release();
+          descSet.remove(desc);
+          throw e;
+        }
       }
-    }
-    buffer.reset(false);
-    if (descSet.size() >= config.getAsyncWriteBatchSize()) {
-      waitCompletion();
+      buffer.reset(false);
+      if (descSet.size() >= config.getAsyncWriteBatchSize()) {
+        waitCompletion();
+      }
     }
   }
 
