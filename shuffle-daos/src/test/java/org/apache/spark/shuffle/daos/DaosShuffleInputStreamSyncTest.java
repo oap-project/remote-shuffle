@@ -59,9 +59,9 @@ import static org.mockito.ArgumentMatchers.any;
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("javax.management.*")
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
-public class DaosShuffleInputStreamTest {
+public class DaosShuffleInputStreamSyncTest {
 
-  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamTest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamSyncTest.class);
 
   @Test
   public void testReadFromOtherThreadCancelMultipleTimes1() throws Exception {
@@ -153,7 +153,7 @@ public class DaosShuffleInputStreamTest {
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseFetchResult");
     method.setAccessible(true);
     CountDownLatch latch = new CountDownLatch(expectedFetchTimes);
 
@@ -217,7 +217,7 @@ public class DaosShuffleInputStreamTest {
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
     AtomicInteger wait = new AtomicInteger(0);
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseFetchResult");
     method.setAccessible(true);
     CountDownLatch latch = new CountDownLatch(expectedFetchTimes);
 
@@ -294,6 +294,7 @@ public class DaosShuffleInputStreamTest {
                     CountDownLatch latch, AtomicInteger fetchTimes, boolean[] succeeded) throws Exception {
     UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("test"));
     SparkConf testConf = new SparkConf(false);
+    testConf.set(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS(), 50);
     long minSize = 10;
     testConf.set(package$.MODULE$.SHUFFLE_DAOS_READ_MINIMUM_SIZE(), minSize);
     SparkContext context = new SparkContext("local", "test", testConf);
@@ -329,12 +330,12 @@ public class DaosShuffleInputStreamTest {
       // verify cancelled task and continuing submission
       for (int i = 0; i < maps; i++) {
         byte[] bytes = new byte[size];
-        is.read(bytes);
+        int readBytes = is.read(bytes);
         for (int j = 0; j < 255; j++) {
           try {
             Assert.assertEquals((byte) j, bytes[j]);
           } catch (Throwable e) {
-            LOG.error("error at map " + i + ", loc: " + j);
+            LOG.error("error at map " + i + ", loc: " + j + ", bytes length: " + readBytes);
             throw e;
           }
         }

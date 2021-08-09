@@ -60,7 +60,7 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
 
   private boolean fromOtherThread;
 
-  private static Logger logger = LoggerFactory.getLogger(DaosReader.class);
+  private static Logger logger = LoggerFactory.getLogger(DaosReaderSync.class);
 
   /**
    * construct DaosReader with <code>object</code> and dedicated read <code>executors</code>.
@@ -337,25 +337,22 @@ public class DaosReaderSync extends TaskSubmitter implements DaosReader {
 
     private IODataDescBase waitForValidFromOtherThread() throws InterruptedException, IOException {
       IODataDescBase desc;
-      while (true) {
-        long start = System.nanoTime();
-        boolean timeout = waitForCondition(config.getWaitDataTimeMs());
-        metrics.incFetchWaitTime(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
-        if (timeout) {
-          exceedWaitTimes++;
-          if (logger.isDebugEnabled()) {
-            logger.debug("exceed wait: {}ms, times: {}", config.getWaitDataTimeMs(), exceedWaitTimes);
-          }
-          if (exceedWaitTimes >= config.getWaitTimeoutTimes()) {
-            return null;
-          }
+      long start = System.nanoTime();
+      boolean timeout = waitForCondition(config.getWaitDataTimeMs());
+      metrics.incFetchWaitTime(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+      if (timeout) {
+        exceedWaitTimes++;
+        if (logger.isDebugEnabled()) {
+          logger.debug("exceed wait: {}ms, times: {}", config.getWaitDataTimeMs(), exceedWaitTimes);
         }
-        // get some results after wait
-        desc = tryGetValidCompleted();
-        if (desc != null) {
-          return desc;
-        }
+        return null;
       }
+      // get some results after wait
+      desc = tryGetValidCompleted();
+      if (desc != null) {
+        return desc;
+      }
+      return null;
     }
 
     private void submitMore() throws IOException {

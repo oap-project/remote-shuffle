@@ -199,16 +199,6 @@ package object daos {
         s"wait data time must be positive")
       .createWithDefault(60000)
 
-  val SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES =
-    ConfigBuilder("spark.shuffle.daos.read.wait.timeout.times")
-      .doc("number of wait timeout (spark.shuffle.daos.read.waitdata.ms) after which shuffle read task reads data " +
-        "by itself instead of dedicated read thread. sync IO only.")
-      .version("3.0.0")
-      .intConf
-      .checkValue(v => v > 0,
-        s"wait data timeout times must be positive")
-      .createWithDefault(5)
-
   val SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES =
     ConfigBuilder("spark.shuffle.daos.write.wait.timeout.times")
       .doc("number of wait timeout (spark.shuffle.daos.write.waitdata.ms) after which shuffle write task fails." +

@@ -129,7 +129,6 @@ public interface DaosReader {
     private long maxMem;
     private int readBatchSize;
     private int waitDataTimeMs;
-    private int waitTimeoutTimes;
     private boolean fromOtherThread;
     private SparkConf conf;
 
@@ -155,7 +154,6 @@ public interface DaosReader {
       this.maxMem = -1L;
       this.readBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_BATCH_SIZE());
       this.waitDataTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS());
-      this.waitTimeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES());
       this.fromOtherThread = (boolean)conf.get(package$.MODULE$.SHUFFLE_DAOS_READ_FROM_OTHER_THREAD());
       if (log.isDebugEnabled()) {
         log.debug("minReadSize: " + minReadSize);
@@ -163,7 +161,6 @@ public interface DaosReader {
         log.debug("maxMem: " + maxMem);
         log.debug("readBatchSize: " + readBatchSize);
         log.debug("waitDataTimeMs: " + waitDataTimeMs);
-        log.debug("waitTimeoutTimes: " + waitTimeoutTimes);
         log.debug("fromOtherThread: " + fromOtherThread);
       }
     }
@@ -174,7 +171,6 @@ public interface DaosReader {
       rc.minReadSize = minReadSize;
       rc.readBatchSize = readBatchSize;
       rc.waitDataTimeMs = waitDataTimeMs;
-      rc.waitTimeoutTimes = waitTimeoutTimes;
       rc.fromOtherThread = fromOtherThread;
       if (maxBytesInFlight < rc.minReadSize) {
         rc.maxBytesInFlight = minReadSize;
@@ -190,10 +186,6 @@ public interface DaosReader {
 
     public int getWaitDataTimeMs() {
       return waitDataTimeMs;
-    }
-
-    public int getWaitTimeoutTimes() {
-      return waitTimeoutTimes;
     }
 
     public long getMaxBytesInFlight() {

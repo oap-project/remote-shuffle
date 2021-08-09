@@ -166,21 +166,17 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       return;
     }
     // to wait
-    int timeoutTimes = 0;
     try {
       while (!goodForSubmit()) {
         boolean timeout = waitForCondition(config.getWaitTimeMs());
         moveForward();
         if (timeout) {
-          timeoutTimes++;
           if (LOG.isDebugEnabled()) {
-            LOG.debug("wait daos write timeout times: " + timeoutTimes);
+            LOG.debug("wait daos write timed out after " + config.getWaitTimeMs());
           }
-          if (timeoutTimes >= config.getTimeoutTimes()) {
-            totalTimeoutTimes += timeoutTimes;
-            runBySelf(desc, buffer);
-            return;
-          }
+          totalTimeoutTimes++;
+          runBySelf(desc, buffer);
+          return;
         }
       }
     } catch (InterruptedException e) {
@@ -189,7 +185,6 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       throw new IOException("interrupted when wait daos write", e);
     }
     // submit write task after some wait
-    totalTimeoutTimes += timeoutTimes;
     submitAndReset(desc, buffer);
   }
 

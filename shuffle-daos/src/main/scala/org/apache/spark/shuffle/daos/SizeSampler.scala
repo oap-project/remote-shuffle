@@ -51,7 +51,7 @@ private[spark] trait SizeSampler {
 
   protected def setSampleStat(stat: SampleStat, buffer: Boolean): Unit = {
     this.stat = stat
-    this.buffer = buffer;
+    this.buffer = buffer
   }
 
   /**
@@ -62,7 +62,15 @@ private[spark] trait SizeSampler {
   protected def resetSamples(): Unit = {
     numUpdates = 1
     samples.clear()
+    var inced = false
+    if (stat.numUpdates == 0) {
+      stat.numUpdates = 1
+      inced = true
+    }
     takeSample
+    if (inced) {
+      stat.numUpdates = 0
+    }
   }
 
   protected def afterUpdate(): Unit = {
