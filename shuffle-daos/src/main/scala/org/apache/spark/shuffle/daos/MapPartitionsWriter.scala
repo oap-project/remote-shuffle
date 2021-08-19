@@ -292,7 +292,6 @@ class MapPartitionsWriter[K, V, C](
         head.next = nextNotFlushed
         nextNotFlushed.prev = head
         // move to last
-        last
         nextNotFlushed.next = start
         start.prev = nextNotFlushed
         last.next = end
@@ -329,8 +328,8 @@ class MapPartitionsWriter[K, V, C](
         val memRequest = limit - memoryLimit
         val granted = acquireMemory(memRequest)
         memoryLimit += granted
-        if (totalSize > memoryLimit) {
-          writeFromHead(totalSize - totalBufferInitial)
+        if (granted < memRequest) {
+          writeFromHead(memRequest - granted)
         }
       }
     }
