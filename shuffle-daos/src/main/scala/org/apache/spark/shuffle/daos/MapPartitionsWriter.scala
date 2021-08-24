@@ -43,6 +43,19 @@ class MapPartitionsWriter[K, V, C](
 
   private val conf = SparkEnv.get.conf
 
+  val spillFirst = conf.get(SHUFFLE_DAOS_SPILL_FIRST)
+  val lowGrantWatermark = if (spillFirst) {
+      val exeMem = conf.get(org.apache.spark.internal.config.EXECUTOR_MEMORY) * 1024 * 1024
+      val memFraction = conf.get(org.apache.spark.internal.config.MEMORY_FRACTION)
+      val execCores = conf.get(org.apache.spark.internal.config.EXECUTOR_CORES)
+      val cpusPerTask = conf.get(org.apache.spark.internal.config.CPUS_PER_TASK)
+      val maxMemPerTask = (exeMem - 300 * 1024 * 1024) * memFraction * cpusPerTask / execCores
+      (maxMemPerTask * conf.get(SHUFFLE_DAOS_SPILL_GRANT_PCT)).toLong
+    } else {
+      0L
+    }
+  logInfo("lowGrantWatermark: " + lowGrantWatermark)
+
   private val numPartitions = partitioner.map(_.numPartitions).getOrElse(1)
   private val shouldPartition = numPartitions > 1
   private def getPartition(key: K): Int = {
@@ -144,6 +157,7 @@ class MapPartitionsWriter[K, V, C](
 
     // track spill status
     private[daos] var merging = false
+    private var lowGranted = 0
 
     val taskContext = context
     val serializerManager = SparkEnv.get.serializerManager
@@ -253,7 +267,7 @@ class MapPartitionsWriter[K, V, C](
       if (estSize == 0 || map.numOfRecords % partMoveInterval == 0) {
         movePartition(estSize, map)
       }
-      if (sampleStat.numUpdates % totalWriteInterval == 0) {
+      if (totalSize > memoryLimit & (sampleStat.numUpdates % totalWriteInterval == 0)) {
         // check if total buffer exceeds memory limit
         maybeWriteTotal()
       }
@@ -265,7 +279,7 @@ class MapPartitionsWriter[K, V, C](
       if (estSize == 0 || buffer.numOfRecords % partMoveInterval == 0) {
         movePartition(estSize, buffer)
       }
-      if (sampleStat.numUpdates % totalWriteInterval == 0) {
+      if (totalSize > memoryLimit & (sampleStat.numUpdates % totalWriteInterval == 0)) {
         // check if total buffer exceeds memory limit
         maybeWriteTotal()
       }
@@ -323,14 +337,19 @@ class MapPartitionsWriter[K, V, C](
     }
 
     private def maybeWriteTotal(): Unit = {
-      if (totalSize > memoryLimit) {
-        val limit = 2 * totalSize
-        val memRequest = limit - memoryLimit
-        val granted = acquireMemory(memRequest)
-        memoryLimit += granted
-        if (granted < memRequest) {
+      val limit = 2 * totalSize
+      val memRequest = limit - memoryLimit
+      val granted = acquireMemory(memRequest)
+      memoryLimit += granted
+      if (granted < memRequest) {
+        lowGranted += 1
+        if (!spillFirst) {
           writeFromHead(memRequest - granted)
+        } else if (granted < lowGrantWatermark | (lowGranted >= 2)) {
+          writeFromHead(totalSize - totalBufferInitial)
         }
+      } else {
+        lowGranted = 0
       }
     }
 

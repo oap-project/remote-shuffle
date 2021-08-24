@@ -240,4 +240,27 @@ package object daos {
       .intConf
       .checkValue(v => v > 0, "total interval should be bigger than 0.")
       .createWithDefault(32)
+
+  val SHUFFLE_DAOS_SPILL_FIRST =
+    ConfigBuilder("spark.shuffle.daos.spill.first")
+      .doc("When it's true (default), the shuffle manager will try to not spill until granted memory is less than " +
+        "task heap memory (\"(executor mem - 300) * spark.memory.fraction * cpusPerCore / executor cores\") * " +
+        "spark.shuffle.daos.spill.grant.pct. The shuffle manager will also spill if there are equal or more than two" +
+        " consecutive lowly granted memory (granted memory < requested memory). When it's false, the shuffle manager " +
+        "will spill once there is lowly granted memory.")
+      .version("3.0.0")
+      .booleanConf
+      .createWithDefault(true)
+
+  val SHUFFLE_DAOS_SPILL_GRANT_PCT =
+    ConfigBuilder("spark.shuffle.daos.spill.grant.pct")
+      .doc("percentage of task heap memory (\"(executor mem - 300) * spark.memory.fraction * cpusPerCore / executor" +
+        " cores\"). It takes effect only if spark.shuffle.daos.spill.first is true. When granted memory from" +
+        " TaskMemoryManager is less than task heap memory * this percentage, spill data to DAOS. Default is 0.1. It " +
+        "should be less than 0.5.")
+      .version("3.0.0")
+      .doubleConf
+      .checkValue(v => v > 0 & v < 0.5, "spill grant percentage should be greater than 0 and no more" +
+        " than 0.5 .")
+      .createWithDefault(0.1)
 }

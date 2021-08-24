@@ -110,13 +110,15 @@ public class DaosWriterAsync extends DaosWriterBase {
   protected void waitCompletion() throws IOException {
     int left;
     try {
-      while ((left=descSet.size()) > 0) {
+      long dur;
+      long start = System.currentTimeMillis();
+      while ((left=descSet.size()) > 0 & ((dur = System.currentTimeMillis() - start) < config.getWaitTimeMs())) {
         completedList.clear();
-        eq.pollCompleted(completedList, IOSimpleDDAsync.class, descSet, left, config.getWaitTimeMs());
-        if (completedList.isEmpty()) {
-          throw new TimedOutException("timed out after " + config.getWaitTimeMs());
-        }
+        eq.pollCompleted(completedList, IOSimpleDDAsync.class, descSet, left, config.getWaitTimeMs() - dur);
         verifyCompleted();
+      }
+      if (!descSet.isEmpty()) {
+        throw new TimedOutException("timed out after " + (System.currentTimeMillis() - start));
       }
     } catch (IOException e) {
       throw new IllegalStateException("failed to complete all running updates. ", e);
