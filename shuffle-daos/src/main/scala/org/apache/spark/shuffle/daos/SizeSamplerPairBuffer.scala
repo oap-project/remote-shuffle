@@ -45,7 +45,7 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
   private var capacity = initialCapacity
   private var data = new Array[AnyRef](2 * initialCapacity)
 
-  setSampleStat(stat)
+  setSampleStat(stat, true)
   resetSamples()
 
   /** Add an element into the buffer */
@@ -89,6 +89,10 @@ class SizeSamplerPairBuffer[K, V](val stat: SampleStat, initialCapacity: Int = 6
       pos += 1
       pair
     }
+  }
+
+  override def size: Int = {
+    numOfRecords
   }
 }
 

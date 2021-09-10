@@ -73,6 +73,30 @@ public interface DaosWriter {
   void write(int partitionId, byte[] array, int offset, int len);
 
   /**
+   * enable spilling to DAOS
+   */
+  void enableSpill();
+
+  /**
+   * increment seq for spilling data.
+   *
+   * @param partitionId
+   */
+  void incrementSeq(int partitionId);
+
+  /**
+   * mark it's merging phase. Records should be written to final akey, mapId.
+   */
+  void startMerging();
+
+  /**
+   * is spilling actual happened on specific partition.
+   *
+   * @param partitionId
+   */
+  boolean isSpilled(int partitionId);
+
+  /**
    * get length of all partitions.
    * 0 for empty partition.
    *
@@ -82,7 +106,7 @@ public interface DaosWriter {
   long[] getPartitionLens(int numPartitions);
 
   /**
-   * Flush specific partition to DAOS.
+   * Flush specific partition to DAOS. Some of non-full buffers may not flushed to DAOS.
    *
    * @param partitionId
    * @throws IOException
@@ -90,7 +114,15 @@ public interface DaosWriter {
   void flush(int partitionId) throws IOException;
 
   /**
-   * Flush all pending writes.
+   * Flush specific partition to DAOS. All buffers are flushed not matter whether it's spill or not.
+   *
+   * @param partitionId
+   * @throws IOException
+   */
+  void flushAll(int partitionId) throws IOException;
+
+  /**
+   * Flush all pending writes and wait for completion if it's async op.
    *
    * @throws IOException
    */
@@ -100,6 +132,14 @@ public interface DaosWriter {
    * close writer.
    */
   void close();
+
+  /**
+   * get list of spilled.
+   *
+   * @param partitionId
+   * @return
+   */
+  List<SpillInfo> getSpillInfo(int partitionId);
 
   /**
    * Write parameters, including mapId, shuffleId, number of partitions and write config.
@@ -147,29 +187,61 @@ public interface DaosWriter {
     }
   }
 
+  class SpillInfo {
+    private String reduceId;
+    private String mapId;
+    private long size;
+
+    public SpillInfo(String partitionId, String cmapId, long roundSize) {
+      this.reduceId = partitionId;
+      this.mapId = cmapId;
+      this.size = roundSize;
+    }
+
+    public String getReduceId() {
+      return reduceId;
+    }
+
+    public String getMapId() {
+      return mapId;
+    }
+
+    public long getSize() {
+      return size;
+    }
+  }
+
   /**
    * Write data to one or multiple netty direct buffers which will be written to DAOS without copy
    */
   class NativeBuffer implements Comparable<NativeBuffer> {
     private String mapId;
+    private int seq;
+    private boolean needSpill;
     private int partitionId;
     private String partitionIdKey;
     private int bufferSize;
     private int idx = -1;
     private List<ByteBuf> bufList = new ArrayList<>();
+    private List<SpillInfo> spillInfos;
     private long totalSize;
-    private long roundSize;
+    private long submittedSize;
+    private int nbrOfSubmitted;
 
     private DaosObject object;
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeBuffer.class);
 
-    NativeBuffer(DaosObject object, String mapId, int partitionId, int bufferSize) {
+    NativeBuffer(DaosObject object, String mapId, int partitionId, int bufferSize, boolean needSpill) {
       this.object = object;
       this.mapId = mapId;
       this.partitionId = partitionId;
       this.partitionIdKey = String.valueOf(partitionId);
       this.bufferSize = bufferSize;
+      this.needSpill = needSpill;
+      if (needSpill) {
+        spillInfos = new ArrayList<>();
+      }
     }
 
     private ByteBuf addNewByteBuf(int len) {
@@ -198,7 +270,6 @@ public interface DaosWriter {
         buf = addNewByteBuf(1);
       }
       buf.writeByte(b);
-      roundSize += 1;
     }
 
     public void write(byte[] b) {
@@ -219,7 +290,13 @@ public interface DaosWriter {
         buf = addNewByteBuf(gap);
         buf.writeBytes(b, avail, gap);
       }
-      roundSize += len;
+    }
+
+    private String currentMapId() {
+      if (needSpill & seq == 0) {
+        seq = 1;
+      }
+      return seq > 0 ? mapId + "_" + seq : mapId;
     }
 
     /**
@@ -230,20 +307,40 @@ public interface DaosWriter {
      * @throws IOException
      */
     public List<IODataDescSync> createUpdateDescs() throws IOException {
-      if (roundSize == 0 || bufList.isEmpty()) {
+      // make sure each spilled data don't span multiple mapId_<seq>s.
+      return createUpdateDescs(true);
+    }
+
+    /**
+     * create list of {@link IODataDescSync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
+     * @param fullBufferOnly
+     * if write full buffer only to DAOS?
+     * @return list of {@link IODataDescSync}
+     * @throws IOException
+     */
+    public List<IODataDescSync> createUpdateDescs(boolean fullBufferOnly) throws IOException {
+      int nbrOfBuf = bufList.size();
+      if ((nbrOfBuf == 0) | (fullBufferOnly & (nbrOfBuf <= 1))) {
         return Collections.emptyList();
       }
-      List<IODataDescSync> descList = new ArrayList<>(bufList.size());
+      nbrOfBuf -= fullBufferOnly ? 1 : 0;
+
+      List<IODataDescSync> descList = new ArrayList<>(nbrOfBuf);
+      String cmapId = currentMapId();
       long bufSize = 0;
-      for (ByteBuf buf : bufList) {
+      long offset = needSpill ? 0 : totalSize;
+      for (int i = 0; i < nbrOfBuf; i++) {
         IODataDescSync desc = object.createDataDescForUpdate(partitionIdKey, IODataDescSync.IodType.ARRAY, 1);
-        desc.addEntryForUpdate(mapId, totalSize + bufSize, buf);
+        ByteBuf buf = bufList.get(i);
+        desc.addEntryForUpdate(cmapId, offset + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
+      nbrOfSubmitted = nbrOfBuf;
+      submittedSize = bufSize;
+      addSpill(cmapId, bufSize);
       return descList;
     }
 
@@ -251,36 +348,79 @@ public interface DaosWriter {
      * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
+     * @param eqHandle
      * @return list of {@link IOSimpleDDAsync}
      * @throws IOException
      */
     public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
-      if (roundSize == 0 || bufList.isEmpty()) {
+      // make sure each spilled data don't span multiple mapId_<seq>s.
+      return createUpdateDescAsyncs(eqHandle, true);
+    }
+
+    /**
+     * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
+     * DAOS has a constraint that same akey cannot be referenced twice in one IO.
+     *
+     * @param eqHandle
+     * @param fullBufferOnly
+     * if write full buffer only to DAOS?
+     * @return list of {@link IOSimpleDDAsync}
+     * @throws IOException
+     */
+    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle, boolean fullBufferOnly) throws IOException {
+      int nbrOfBuf = bufList.size();
+      if ((nbrOfBuf == 0) | (fullBufferOnly & (nbrOfBuf <= 1))) {
         return Collections.emptyList();
       }
-      List<IOSimpleDDAsync> descList = new ArrayList<>();
+      nbrOfBuf -= fullBufferOnly ? 1 : 0;
+
+      List<IOSimpleDDAsync> descList = new ArrayList<>(nbrOfBuf);
+      String cmapId = currentMapId();
       long bufSize = 0;
-      for (ByteBuf buf : bufList) {
+      long offset = needSpill ? 0 : totalSize;
+      for (int i = 0; i < nbrOfBuf; i++) {
         IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
-        desc.addEntryForUpdate(mapId, totalSize + bufSize, buf);
+        ByteBuf buf = bufList.get(i);
+        desc.addEntryForUpdate(cmapId, offset + bufSize, buf);
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
-      if (roundSize != bufSize) {
-        throw new IOException("expect update size: " + roundSize + ", actual: " + bufSize);
-      }
+
+      nbrOfSubmitted = nbrOfBuf;
+      submittedSize = bufSize;
+      addSpill(cmapId, bufSize);
       return descList;
+    }
+
+    private void addSpill(String cmapId, long roundSize) {
+      if (needSpill) {
+        LOG.info("reduce ID: " + partitionIdKey + ", map ID: " + cmapId + ", spilling to DAOS, size: " + roundSize);
+        spillInfos.add(new SpillInfo(partitionIdKey, cmapId, roundSize));
+      }
+    }
+
+    public List<SpillInfo> getSpillInfo() {
+      return spillInfos;
     }
 
     public void reset(boolean release) {
       if (release) {
-        bufList.forEach(b -> b.release());
+        for (int i = 0; i < nbrOfSubmitted; i++) {
+          bufList.get(i).release();
+        }
       }
       // release==false, buffers will be released when tasks are executed and consumed
+      int nbrOfBufs = bufList.size();
+      ByteBuf lastBuf = nbrOfBufs > 0 ? bufList.get(nbrOfBufs - 1) : null;
       bufList.clear();
       idx = -1;
-      totalSize += roundSize;
-      roundSize = 0;
+      if (nbrOfSubmitted < nbrOfBufs) { // add back last buffer
+        bufList.add(lastBuf);
+        idx = 0;
+      }
+      totalSize += submittedSize;
+      submittedSize = 0;
+      nbrOfSubmitted = 0;
     }
 
     @Override
@@ -296,12 +436,36 @@ public interface DaosWriter {
       return totalSize;
     }
 
-    public long getRoundSize() {
-      return roundSize;
+    public long getSubmittedSize() {
+      return submittedSize;
+    }
+
+    public String getPartitionIdKey() {
+      return partitionIdKey;
     }
 
     public List<ByteBuf> getBufList() {
       return bufList;
+    }
+
+    public boolean isSpilled() {
+      return !spillInfos.isEmpty();
+    }
+
+    /**
+     * prepare for caching merged records
+     */
+    public void startMerging() {
+      reset(true);
+      totalSize = 0;
+      this.needSpill = false;
+      this.seq = 0;
+    }
+
+    public void incrementSeq() {
+      if (needSpill) {
+        seq++;
+      }
     }
   }
 
@@ -314,7 +478,6 @@ public interface DaosWriter {
     private boolean warnSmallWrite;
     private int asyncWriteBatchSize;
     private long waitTimeMs;
-    private int timeoutTimes;
     private long totalInMemSize;
     private int totalSubmittedLimit;
     private int threads;
@@ -331,9 +494,9 @@ public interface DaosWriter {
       warnSmallWrite = (boolean) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WARN_SMALL_SIZE());
       bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
           * 1024 * 1024);
+      bufferSize += bufferSize * 0.1; // 10% more for metadata overhead and upper layer deviation
       minSize = (int) ((long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MINIMUM_SIZE()) * 1024);
       asyncWriteBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_ASYNC_WRITE_BATCH_SIZE());
-      timeoutTimes = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES());
       waitTimeMs = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WAIT_MS());
       totalInMemSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MAX_BYTES_IN_FLIGHT()) * 1024;
       totalSubmittedLimit = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SUBMITTED_LIMIT());
@@ -360,10 +523,6 @@ public interface DaosWriter {
 
     public long getWaitTimeMs() {
       return waitTimeMs;
-    }
-
-    public int getTimeoutTimes() {
-      return timeoutTimes;
     }
 
     public long getTotalInMemSize() {
@@ -393,7 +552,6 @@ public interface DaosWriter {
           ", minSize=" + minSize +
           ", warnSmallWrite=" + warnSmallWrite +
           ", waitTimeMs=" + waitTimeMs +
-          ", timeoutTimes=" + timeoutTimes +
           ", totalInMemSize=" + totalInMemSize +
           ", totalSubmittedLimit=" + totalSubmittedLimit +
           ", threads=" + threads +

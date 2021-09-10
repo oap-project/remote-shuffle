@@ -49,32 +49,14 @@ package object daos {
       .booleanConf
       .createWithDefault(true)
 
-  val SHUFFLE_DAOS_WRITE_PARTITION_BUFFER_SIZE =
-    ConfigBuilder("spark.shuffle.daos.write.partition.buffer")
-      .doc("size of the in-memory buffer for each map partition output, in KiB")
-      .version("3.0.0")
-      .bytesConf(ByteUnit.KiB)
-      .checkValue(v => v > 0,
-        s"The map partition buffer size must be positive.")
-      .createWithDefaultString("2048k")
-
-  val SHUFFLE_DAOS_WRITE_BUFFER_SIZE =
-    ConfigBuilder("spark.shuffle.daos.write.buffer")
-      .doc("total size of in-memory buffers of each map's all partitions, in MiB")
-      .version("3.0.0")
-      .bytesConf(ByteUnit.MiB)
-      .checkValue(v => v > 50,
-        s"The total buffer size must be bigger than 50m.")
-      .createWithDefaultString("800m")
-
   val SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE =
     ConfigBuilder("spark.shuffle.daos.write.buffer.initial")
       .doc("initial size of total in-memory buffer for each map output, in MiB")
       .version("3.0.0")
       .bytesConf(ByteUnit.MiB)
-      .checkValue(v => v > 10,
-        s"The initial total buffer size must be bigger than 10m.")
-      .createWithDefaultString("80m")
+      .checkValue(v => v > 0,
+        s"The initial total buffer size must be bigger than 0.")
+      .createWithDefaultString("5m")
 
   val SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT =
     ConfigBuilder("spark.shuffle.daos.write.buffer.percentage")
@@ -113,6 +95,15 @@ package object daos {
         s"The single DAOS write buffer must be at least 1m")
       .createWithDefaultString("2m")
 
+  val SHUFFLE_DAOS_WRITE_FLUSH_RECORDS =
+    ConfigBuilder("spark.shuffle.daos.write.flush.records")
+      .doc("per how many number of records to flush data in buffer to DAOS")
+      .version("3.0.0")
+      .intConf
+      .checkValue(v => v >= 100,
+      s"number of records to flush should be more than 100")
+      .createWithDefault(1000)
+
   val SHUFFLE_DAOS_READ_MINIMUM_SIZE =
     ConfigBuilder("spark.shuffle.daos.read.minimum")
       .doc("minimum size when read from DAOS, in KiB. ")
@@ -120,7 +111,7 @@ package object daos {
       .bytesConf(ByteUnit.KiB)
       .checkValue(v => v > 0,
         s"The DAOS read minimum size must be positive")
-      .createWithDefaultString("2048k")
+      .createWithDefaultString("128k")
 
   val SHUFFLE_DAOS_READ_MAX_BYTES_IN_FLIGHT =
     ConfigBuilder("spark.shuffle.daos.read.maxbytes.inflight")
@@ -197,7 +188,7 @@ package object daos {
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(5000)
+      .createWithDefault(60000)
 
   val SHUFFLE_DAOS_WRITE_WAIT_MS =
     ConfigBuilder("spark.shuffle.daos.write.wait.ms")
@@ -206,17 +197,7 @@ package object daos {
       .intConf
       .checkValue(v => v > 0,
         s"wait data time must be positive")
-      .createWithDefault(5000)
-
-  val SHUFFLE_DAOS_READ_WAIT_DATA_TIMEOUT_TIMES =
-    ConfigBuilder("spark.shuffle.daos.read.wait.timeout.times")
-      .doc("number of wait timeout (spark.shuffle.daos.read.waitdata.ms) after which shuffle read task reads data " +
-        "by itself instead of dedicated read thread. sync IO only.")
-      .version("3.0.0")
-      .intConf
-      .checkValue(v => v > 0,
-        s"wait data timeout times must be positive")
-      .createWithDefault(5)
+      .createWithDefault(60000)
 
   val SHUFFLE_DAOS_WRITE_WAIT_DATA_TIMEOUT_TIMES =
     ConfigBuilder("spark.shuffle.daos.write.wait.timeout.times")
@@ -257,6 +238,29 @@ package object daos {
         " 10000 records by default.")
       .version("3.0.0")
       .intConf
-      .checkValue(v => v >= 100, "total interval should be bigger than 100.")
-      .createWithDefault(10000)
+      .checkValue(v => v > 0, "total interval should be bigger than 0.")
+      .createWithDefault(32)
+
+  val SHUFFLE_DAOS_SPILL_FIRST =
+    ConfigBuilder("spark.shuffle.daos.spill.first")
+      .doc("When it's true (default), the shuffle manager will try to not spill until granted memory is less than " +
+        "task heap memory (\"(executor mem - 300) * spark.memory.fraction * cpusPerCore / executor cores\") * " +
+        "spark.shuffle.daos.spill.grant.pct. The shuffle manager will also spill if there are equal or more than two" +
+        " consecutive lowly granted memory (granted memory < requested memory). When it's false, the shuffle manager " +
+        "will spill once there is lowly granted memory.")
+      .version("3.0.0")
+      .booleanConf
+      .createWithDefault(true)
+
+  val SHUFFLE_DAOS_SPILL_GRANT_PCT =
+    ConfigBuilder("spark.shuffle.daos.spill.grant.pct")
+      .doc("percentage of task heap memory (\"(executor mem - 300) * spark.memory.fraction * cpusPerCore / executor" +
+        " cores\"). It takes effect only if spark.shuffle.daos.spill.first is true. When granted memory from" +
+        " TaskMemoryManager is less than task heap memory * this percentage, spill data to DAOS. Default is 0.1. It " +
+        "should be less than 0.5.")
+      .version("3.0.0")
+      .doubleConf
+      .checkValue(v => v > 0 & v < 0.5, "spill grant percentage should be greater than 0 and no more" +
+        " than 0.5 .")
+      .createWithDefault(0.1)
 }

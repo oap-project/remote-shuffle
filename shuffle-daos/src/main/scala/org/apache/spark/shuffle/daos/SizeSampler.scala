@@ -43,24 +43,34 @@ private[spark] trait SizeSampler {
   /** Total number of insertions and updates into the map since the last resetSamples(). */
   private var numUpdates: Long = _
 
-  private var bytesPerUpdate: Double = _
-
   private var stat: SampleStat = _
+
+  private var buffer: Boolean = _
 
   protected var curSize = 0
 
-  protected def setSampleStat(stat: SampleStat): Unit = {
+  protected def setSampleStat(stat: SampleStat, buffer: Boolean): Unit = {
     this.stat = stat
+    this.buffer = buffer
   }
 
   /**
    * Reset samples collected so far.
    * This should be called after the collection undergoes a dramatic change in size.
+   * After growing size, it's only called by buffer, not map.
    */
   protected def resetSamples(): Unit = {
     numUpdates = 1
     samples.clear()
-    takeSample()
+    var inced = false
+    if (stat.numUpdates == 0) {
+      stat.numUpdates = 1
+      inced = true
+    }
+    takeSample
+    if (inced) {
+      stat.numUpdates = 0
+    }
   }
 
   protected def afterUpdate(): Unit = {
@@ -68,34 +78,38 @@ private[spark] trait SizeSampler {
     curSize += 1
     stat.incNumUpdates
     if (stat.needSample) {
-      takeSample()
+      takeSample
     }
   }
 
+  /**
+   * @return number of records consumed
+   */
   def numOfRecords: Int = curSize
+
+  /**
+   * @return number of elements in map or buffer
+   */
+  def size: Int
 
   /**
    * Take a new sample of the current collection's size.
    */
-  protected def takeSample(): Unit = {
+  protected def takeSample: Unit = {
     samples.enqueue(Sample(SizeEstimator.estimate(this), numUpdates))
     // Only use the last two samples to extrapolate
     if (samples.size > 2) {
       samples.dequeue()
     }
-    var updateDelta = 0L
     val bytesDelta = samples.toList.reverse match {
       case latest :: previous :: _ =>
-        updateDelta = latest.numUpdates - previous.numUpdates
-        (latest.size - previous.size).toDouble / updateDelta
+        val updateDelta = latest.numUpdates - previous.numUpdates
+        if (buffer) (latest.size - previous.size).toDouble / updateDelta
+        else latest.size / latest.numUpdates // possible case for map-combine
       // If fewer than 2 samples, assume no change
       case _ => 0
     }
-    if (updateDelta == 0) {
-      return
-    }
-    bytesPerUpdate = math.max(0, bytesDelta)
-    stat.updateStat(bytesPerUpdate, updateDelta)
+    stat.updateStat(bytesDelta)
   }
 
   /**
@@ -103,8 +117,8 @@ private[spark] trait SizeSampler {
    */
   def estimateSize(): Long = {
     assert(samples.nonEmpty)
-    val bpu = if (bytesPerUpdate == 0) stat.bytesPerUpdate else bytesPerUpdate
-    val extrapolatedDelta = bpu * (numUpdates - samples.last.numUpdates)
+    val nbr = numUpdates - samples.last.numUpdates
+    val extrapolatedDelta = stat.bytesPerUpdate * nbr
     (samples.last.size + extrapolatedDelta).toLong
   }
 }
@@ -121,10 +135,8 @@ private[spark] class SampleStat {
   private[daos] var nextSampleNum: Long = 1
   private[daos] var bytesPerUpdate: Double = 0
 
-  def updateStat(partBpu: Double, partUpdateDelta: Long): Unit = {
-    bytesPerUpdate = ((numUpdates - partUpdateDelta) * bytesPerUpdate +
-      partUpdateDelta * partBpu
-      ) / numUpdates
+  def updateStat(partBpu: Double): Unit = {
+    bytesPerUpdate = partBpu
     lastNumUpdates = numUpdates
     nextSampleNum = math.ceil(numUpdates * SAMPLE_GROWTH_RATE).toLong
   }

@@ -29,7 +29,7 @@ private[spark] class SizeSamplerAppendOnlyMap[K, V](val stat: SampleStat)
   extends AppendOnlyMap[K, V] with SizeSampler
 {
 
-  setSampleStat(stat)
+  setSampleStat(stat, false)
   resetSamples()
 
   override def update(key: K, value: V): Unit = {

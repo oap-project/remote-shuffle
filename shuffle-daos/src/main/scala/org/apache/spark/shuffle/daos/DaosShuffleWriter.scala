@@ -47,16 +47,15 @@ class DaosShuffleWriter[K, V, C](
   private val dummyBlkId = BlockManagerId("-1", "dummy-host", 1024)
 
   override def write(records: Iterator[Product2[K, V]]): Unit = {
-//    val start = System.nanoTime()
     partitionsWriter = if (dep.mapSideCombine) {
       new MapPartitionsWriter[K, V, C](
         handle.shuffleId,
         context,
+        shuffleIO,
         dep.aggregator,
         Some(dep.partitioner),
         dep.keyOrdering,
-        dep.serializer,
-        shuffleIO)
+        dep.serializer)
     } else {
       // In this case we pass neither an aggregator nor an ordering to the sorter, because we don't
       // care whether the keys get sorted in each partition; that will be done on the reduce side
@@ -64,17 +63,14 @@ class DaosShuffleWriter[K, V, C](
       new MapPartitionsWriter[K, V, V](
         handle.shuffleId,
         context,
+        shuffleIO,
         aggregator = None,
         Some(dep.partitioner),
         ordering = None,
-        dep.serializer,
-        shuffleIO)
+        dep.serializer)
     }
     partitionsWriter.insertAll(records)
     val partitionLengths = partitionsWriter.commitAll
-
-    // logInfo(context.taskAttemptId() + " all time: " + (System.nanoTime() - start)/1000000)
-
     mapStatus = MapStatus(dummyBlkId, partitionLengths, mapId)
   }
 
