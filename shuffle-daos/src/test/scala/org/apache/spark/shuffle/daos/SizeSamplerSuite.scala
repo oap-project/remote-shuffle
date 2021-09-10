@@ -31,7 +31,7 @@ class SizeSamplerSuite extends SparkFunSuite {
 
   test("test sample AppendOnlyMap by update") {
     val stat = new SampleStat
-    var grew = false;
+    var grew = false
     val map = new SizeSamplerAppendOnlyMap[Int, Int](stat) {
       override def growTable(): Unit = {
         super.growTable()

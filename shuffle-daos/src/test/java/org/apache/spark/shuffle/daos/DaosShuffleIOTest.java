@@ -146,8 +146,9 @@ public class DaosShuffleIOTest {
     Mockito.doNothing().when(object).punch();
     Mockito.doNothing().when(object).close();
     objectMap.put(appId + "" + shuffleId, object);
+    Whitebox.setInternalState(io, "objectMap", objectMap);
     io.removeShuffle(shuffleId);
-    Mockito.verify(object);
+    Mockito.verify(object).punch();
   }
 
   @Test
@@ -163,7 +164,7 @@ public class DaosShuffleIOTest {
     Mockito.doThrow(new IllegalStateException("shuffled data should be kept")).when(object).punch();
     Mockito.doNothing().when(object).close();
     objectMap.put(appId + "" + shuffleId, object);
+    Whitebox.setInternalState(io, "objectMap", objectMap);
     io.removeShuffle(shuffleId);
-    Mockito.verify(object);
   }
 }

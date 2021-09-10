@@ -66,7 +66,7 @@ public class DaosShuffleOutputStream extends OutputStream {
 
   @Override
   public void close() throws IOException {
-    daosWriter.flush(partitionId);
+    daosWriter.flushAll(partitionId);
   }
 
   public long getWrittenBytes() {

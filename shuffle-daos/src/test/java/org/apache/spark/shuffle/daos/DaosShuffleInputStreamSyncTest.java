@@ -31,7 +31,6 @@ import org.apache.spark.SparkContext;
 import org.apache.spark.TaskContext;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.apache.spark.storage.ShuffleBlockId;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -46,9 +45,7 @@ import org.powermock.core.classloader.annotations.SuppressStaticInitializationFo
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Option;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -62,9 +59,9 @@ import static org.mockito.ArgumentMatchers.any;
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("javax.management.*")
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
-public class DaosShuffleInputStreamTest {
+public class DaosShuffleInputStreamSyncTest {
 
-  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamTest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamSyncTest.class);
 
   @Test
   public void testReadFromOtherThreadCancelMultipleTimes1() throws Exception {
@@ -156,7 +153,7 @@ public class DaosShuffleInputStreamTest {
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseFetchResult");
     method.setAccessible(true);
     CountDownLatch latch = new CountDownLatch(expectedFetchTimes);
 
@@ -220,7 +217,7 @@ public class DaosShuffleInputStreamTest {
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
     AtomicInteger wait = new AtomicInteger(0);
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseFetchResult");
     method.setAccessible(true);
     CountDownLatch latch = new CountDownLatch(expectedFetchTimes);
 
@@ -297,6 +294,7 @@ public class DaosShuffleInputStreamTest {
                     CountDownLatch latch, AtomicInteger fetchTimes, boolean[] succeeded) throws Exception {
     UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("test"));
     SparkConf testConf = new SparkConf(false);
+    testConf.set(package$.MODULE$.SHUFFLE_DAOS_READ_WAIT_MS(), 50);
     long minSize = 10;
     testConf.set(package$.MODULE$.SHUFFLE_DAOS_READ_MINIMUM_SIZE(), minSize);
     SparkContext context = new SparkContext("local", "test", testConf);
@@ -317,14 +315,13 @@ public class DaosShuffleInputStreamTest {
         new DaosReaderSync.ReadThreadFactory());
     DaosReaderSync daosReader = new DaosReaderSync(daosObject, new DaosReader.ReaderConfig(testConf),
             executors.nextExecutor());
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap = new LinkedHashMap<>();
+    LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap = new LinkedHashMap<>();
     int shuffleId = 10;
     int reduceId = 1;
     int size = (int)(minSize + 5) * 1024;
     for (int i = 0; i < maps; i++) {
-      partSizeMap.put(new Tuple2<>(Long.valueOf(i), 10), new Tuple3<>(Long.valueOf(size),
-              new ShuffleBlockId(shuffleId, i, reduceId),
-          BlockManagerId.apply("1", "localhost", 2, Option.empty())));
+      partSizeMap.put(new Tuple2<>(String.valueOf(i), 10), new Tuple2<>(Long.valueOf(size),
+              new ShuffleBlockId(shuffleId, i, reduceId)));
     }
 
     DaosShuffleInputStream is = new DaosShuffleInputStream(daosReader, partSizeMap, 2 * minSize * 1024,
@@ -333,12 +330,12 @@ public class DaosShuffleInputStreamTest {
       // verify cancelled task and continuing submission
       for (int i = 0; i < maps; i++) {
         byte[] bytes = new byte[size];
-        is.read(bytes);
+        int readBytes = is.read(bytes);
         for (int j = 0; j < 255; j++) {
           try {
             Assert.assertEquals((byte) j, bytes[j]);
           } catch (Throwable e) {
-            LOG.error("error at map " + i + ", loc: " + j);
+            LOG.error("error at map " + i + ", loc: " + j + ", bytes length: " + readBytes);
             throw e;
           }
         }

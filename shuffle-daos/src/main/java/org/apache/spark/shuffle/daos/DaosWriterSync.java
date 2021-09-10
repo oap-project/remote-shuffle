@@ -106,12 +106,44 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   }
 
   @Override
+  public void enableSpill() {
+    iw.enableSpill();
+  }
+
+  @Override
+  public void startMerging() {
+    iw.startMerging();
+  }
+
+  @Override
+  public void incrementSeq(int partitionId) {
+    iw.incrementSeq(partitionId);
+  }
+
+  @Override
+  public boolean isSpilled(int partitionId) {
+    return iw.isSpilled(partitionId);
+  }
+
+  @Override
+  public List<SpillInfo> getSpillInfo(int partitionId) {
+    return iw.getSpillInfo(partitionId);
+  }
+
+  @Override
   public void flush(int partitionId) throws IOException {
     iw.flush(partitionId);
   }
 
   @Override
-  public void flushAll() {}
+  public void flushAll(int partitionId) throws IOException {
+    iw.flushAll();
+  }
+
+  @Override
+  public void flushAll() throws IOException {
+    iw.flushAll();
+  }
 
   private void runBySelf(IODataDescSync desc, NativeBuffer buffer) throws IOException {
     totalBySelfTimes++;
@@ -134,21 +166,17 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       return;
     }
     // to wait
-    int timeoutTimes = 0;
     try {
       while (!goodForSubmit()) {
         boolean timeout = waitForCondition(config.getWaitTimeMs());
         moveForward();
         if (timeout) {
-          timeoutTimes++;
           if (LOG.isDebugEnabled()) {
-            LOG.debug("wait daos write timeout times: " + timeoutTimes);
+            LOG.debug("wait daos write timed out after " + config.getWaitTimeMs());
           }
-          if (timeoutTimes >= config.getTimeoutTimes()) {
-            totalTimeoutTimes += timeoutTimes;
-            runBySelf(desc, buffer);
-            return;
-          }
+          totalTimeoutTimes++;
+          runBySelf(desc, buffer);
+          return;
         }
       }
     } catch (InterruptedException e) {
@@ -157,7 +185,6 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
       throw new IOException("interrupted when wait daos write", e);
     }
     // submit write task after some wait
-    totalTimeoutTimes += timeoutTimes;
     submitAndReset(desc, buffer);
   }
 
@@ -173,13 +200,13 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
   }
 
-  private void cleanup(boolean force) {
+  private void cleanup() {
     if (cleaned) {
       return;
     }
     boolean allReleased = true;
-    allReleased &= cleanupSubmitted(force);
-    allReleased &= cleanupConsumed(force);
+    allReleased &= cleanupSubmitted(true);
+    allReleased &= cleanupConsumed(true);
     if (allReleased) {
       cleaned = true;
     }
@@ -191,12 +218,13 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
   @Override
   public void close() {
     iw.close();
+    if (writerMap != null && cleaned) {
+      writerMap.remove(this);
+      writerMap = null;
+    }
   }
 
-  private void waitCompletion(boolean force) throws Exception {
-    if (!force) {
-      return;
-    }
+  private void waitCompletion() throws Exception {
     try {
       while (totalSubmitted > 0) {
         waitForCondition(config.getWaitTimeMs());
@@ -253,11 +281,25 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
         return;
       }
       List<IODataDescSync> descList = buffer.createUpdateDescs();
+      flush(buffer, descList);
+    }
+
+    @Override
+    public void flushAll(int partitionId) throws IOException {
+      NativeBuffer buffer = partitionBufArray[partitionId];
+      if (buffer == null) {
+        return;
+      }
+      List<IODataDescSync> descList = buffer.createUpdateDescs(false);
+      flush(buffer, descList);
+    }
+
+    private void flush(NativeBuffer buffer, List<IODataDescSync> descList) throws IOException {
       for (IODataDescSync desc : descList) {
         totalWriteTimes++;
-        if (config.isWarnSmallWrite() && buffer.getRoundSize() < config.getMinSize()) {
+        if (config.isWarnSmallWrite() && buffer.getSubmittedSize() < config.getMinSize()) {
           LOG.warn("too small partition size {}, shuffle {}, map {}, partition {}",
-              buffer.getRoundSize(), param.getShuffleId(), mapId, partitionId);
+              buffer.getSubmittedSize(), param.getShuffleId(), mapId, buffer.getPartitionIdKey());
         }
         if (executor == null) { // run write by self
           runBySelf(desc, buffer);
@@ -268,29 +310,44 @@ public class DaosWriterSync extends TaskSubmitter implements DaosWriter {
     }
 
     @Override
-    public void close() {
+    protected void waitCompletion() throws IOException {
       try {
-        close(true);
+        DaosWriterSync.this.waitCompletion();
       } catch (Exception e) {
         throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
       }
     }
 
-    private void close(boolean force) throws Exception {
-      if (partitionBufArray != null) {
-        waitCompletion(force);
-        partitionBufArray = null;
-        object = null;
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("total writes: " + totalWriteTimes + ", total timeout times: " + totalTimeoutTimes +
-              ", total write-by-self times: " + totalBySelfTimes + ", total timeout times/total writes: " +
-              ((float) totalTimeoutTimes) / totalWriteTimes);
+    @Override
+    public void flushAll() throws IOException {
+      for (int i = 0; i < partitionBufArray.length; i++) {
+        NativeBuffer buffer = partitionBufArray[i];
+        if (buffer == null) {
+          return;
         }
+        List<IODataDescSync> descList = buffer.createUpdateDescs(false);
+        flush(buffer, descList);
       }
-      cleanup(force);
-      if (writerMap != null && (force || cleaned)) {
-        writerMap.remove(this);
-        writerMap = null;
+      waitCompletion();
+    }
+
+    @Override
+    public void close() {
+      try {
+        if (partitionBufArray != null) {
+          waitCompletion();
+          partitionBufArray = null;
+          object = null;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("total writes: " + totalWriteTimes + ", total timeout times: " + totalTimeoutTimes +
+                ", total write-by-self times: " + totalBySelfTimes + ", total timeout times/total writes: " +
+                ((float) totalTimeoutTimes) / totalWriteTimes);
+          }
+        }
+        cleanup();
+        super.close();
+      } catch (Exception e) {
+        throw new IllegalStateException("failed to complete all write tasks and cleanup", e);
       }
     }
   }

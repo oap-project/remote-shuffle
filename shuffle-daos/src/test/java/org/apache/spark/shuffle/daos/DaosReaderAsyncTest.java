@@ -31,7 +31,6 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.executor.TempShuffleReadMetrics;
 import org.apache.spark.shuffle.ShuffleReadMetricsReporter;
 import org.apache.spark.storage.BlockId;
-import org.apache.spark.storage.BlockManagerId;
 import org.apache.spark.storage.ShuffleBlockId;
 import org.junit.Assert;
 import org.junit.Before;
@@ -46,7 +45,6 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.core.classloader.annotations.SuppressStaticInitializationFor;
 import org.powermock.modules.junit4.PowerMockRunner;
 import scala.Tuple2;
-import scala.Tuple3;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -86,9 +84,9 @@ public class DaosReaderAsyncTest {
 
   @Test
   public void testOneEntry() throws Exception {
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
+    LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap;
     partSizeMap = new LinkedHashMap<>();
-    long mapId = 12345;
+    String mapId = "12345";
     int reduceId = 6789;
     long len = 1024;
     int shuffleId = 1000;
@@ -110,9 +108,9 @@ public class DaosReaderAsyncTest {
         list.add(desc);
         return Integer.valueOf(1);
       }
-    }).when(eq).pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
-    BlockId blockId = new ShuffleBlockId(shuffleId, mapId, reduceId);
-    partSizeMap.put(new Tuple2<>(mapId, reduceId), new Tuple3<>(len, blockId, null));
+    }).when(eq).pollCompleted(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
+    BlockId blockId = new ShuffleBlockId(shuffleId, Long.valueOf(mapId), reduceId);
+    partSizeMap.put(new Tuple2<>(mapId, reduceId), new Tuple2<>(len, blockId));
     ShuffleReadMetricsReporter metrics = new TempShuffleReadMetrics();
     reader.prepare(partSizeMap, 2 * 1024 * 1024, 2 * 1024 * 1024,
         metrics);
@@ -120,15 +118,15 @@ public class DaosReaderAsyncTest {
     Assert.assertTrue(realBuf == buf);
     Assert.assertEquals(len, ((TempShuffleReadMetrics) metrics).remoteBytesRead());
 
-    Mockito.verify(eq).pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
+    Mockito.verify(eq).pollCompleted(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
     Mockito.verify(object).createAsyncDataDescForFetch(String.valueOf(reduceId), eqHandle);
   }
 
   @Test
   public void testTwoEntries() throws Exception {
-    LinkedHashMap<Tuple2<Long, Integer>, Tuple3<Long, BlockId, BlockManagerId>> partSizeMap;
+    LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap;
     partSizeMap = new LinkedHashMap<>();
-    long[] mapIds = new long[] {12345, 12346};
+    String[] mapIds = new String[] {"12345", "12346"};
     int reduceId = 6789;
     long[] lens = new long[] {2 * 1024 * 1024, 1023};
     int shuffleId = 1000;
@@ -143,7 +141,7 @@ public class DaosReaderAsyncTest {
     boolean[] readAlready = new boolean[] {false, false};
     for (int i = 0; i < 2; i++) {
       Mockito.when(entries[i].getFetchedData()).thenReturn(bufs[i]);
-      Mockito.when(entries[i].getKey()).thenReturn(String.valueOf(mapIds[i]));
+      Mockito.when(entries[i].getKey()).thenReturn(mapIds[i]);
       final int index = i;
       Mockito.doAnswer(new Answer() {
         @Override
@@ -157,8 +155,8 @@ public class DaosReaderAsyncTest {
       }).when(bufs[i]).readableBytes();
       Mockito.when(descs[i].getEntry(0)).thenReturn(entries[i]);
       Mockito.when(descs[i].isSucceeded()).thenReturn(true);
-      BlockId blockId = new ShuffleBlockId(shuffleId, mapIds[i], reduceId);
-      partSizeMap.put(new Tuple2<>(mapIds[i], reduceId), new Tuple3<>(lens[i], blockId, null));
+      BlockId blockId = new ShuffleBlockId(shuffleId, Long.valueOf(mapIds[i]), reduceId);
+      partSizeMap.put(new Tuple2<>(mapIds[i], reduceId), new Tuple2<>(lens[i], blockId));
     }
     Mockito.when(eq.getEqWrapperHdl()).thenReturn(eqHandle);
 
@@ -174,7 +172,7 @@ public class DaosReaderAsyncTest {
         times[0]++;
         return Integer.valueOf(1);
       }
-    }).when(eq).pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
+    }).when(eq).pollCompleted(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
 
     int[] times2 = new int[] {0};
     Mockito.doAnswer(new Answer() {
@@ -201,7 +199,7 @@ public class DaosReaderAsyncTest {
     }
 
     Mockito.verify(eq, Mockito.times(2))
-        .pollCompleted(Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
+        .pollCompleted(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.anyLong());
     Mockito.verify(object, Mockito.times(2))
         .createAsyncDataDescForFetch(String.valueOf(reduceId), eqHandle);
   }
