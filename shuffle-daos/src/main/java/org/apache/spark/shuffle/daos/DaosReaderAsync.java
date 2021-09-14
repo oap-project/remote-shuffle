@@ -161,10 +161,15 @@ public class DaosReaderAsync extends DaosReaderBase {
       failedCnt++;
       if (failed == null) {
         failed = desc;
+      } else {
+        desc.release();
       }
     }
     if (failedCnt > 0) {
-      throw new IOException("failed to read " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
+      IOException e = new IOException("failed to read " + failedCnt + " IOSimpleDDAsync. Return code is " +
+          failed.getReturnCode() + ". First failed is " + failed);
+      failed.release();
+      throw e;
     }
   }
 
