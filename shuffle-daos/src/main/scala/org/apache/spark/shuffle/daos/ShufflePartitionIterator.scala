@@ -134,10 +134,11 @@ class ShufflePartitionIterator(
       address: BlockManagerId,
       e: Throwable): Nothing = {
     blockId match {
+      // -1 as mapIndex to avoid removing map output
       case ShuffleBlockId(shufId, mapId, reduceId) =>
-        throw new FetchFailedException(address, shufId, mapId, mapIndex, reduceId, e)
+        throw new FetchFailedException(address, shufId, mapId, -1, reduceId, e)
       case ShuffleBlockBatchId(shuffleId, mapId, startReduceId, _) =>
-        throw new FetchFailedException(address, shuffleId, mapId, mapIndex, startReduceId, e)
+        throw new FetchFailedException(address, shuffleId, mapId, -1, startReduceId, e)
       case _ =>
         throw new SparkException(
           "Failed to get block " + blockId + ", which is not a shuffle block", e)

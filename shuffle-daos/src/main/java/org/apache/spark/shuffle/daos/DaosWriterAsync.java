@@ -143,7 +143,7 @@ public class DaosWriterAsync extends DaosWriterBase {
   }
 
   private void verifyCompleted() throws IOException {
-    String failed = null;
+    IOSimpleDDAsync failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {
       descSet.remove(attachment);
@@ -151,13 +151,17 @@ public class DaosWriterAsync extends DaosWriterBase {
       if (!desc.isSucceeded()) {
         failedCnt++;
         if (failed == null) {
-          failed = desc.toString(); // release after toString so that akey info is captured
+          failed = desc; // release after toString so that akey info is captured
+          continue;
         }
       }
       desc.release();
     }
     if (failedCnt > 0) {
-      throw new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. First failed is " + failed);
+      IOException e = new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. Return code is " +
+          failed.getReturnCode() + ". First failed is " + failed);
+      failed.release();
+      throw e;
     }
   }
 
