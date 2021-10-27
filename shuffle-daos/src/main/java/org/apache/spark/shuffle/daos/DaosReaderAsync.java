@@ -29,6 +29,8 @@ import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDescBase;
 import io.daos.obj.IOSimpleDDAsync;
 import io.netty.buffer.ByteBuf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.LinkedHashSet;
@@ -45,6 +47,8 @@ public class DaosReaderAsync extends DaosReaderBase {
   private LinkedList<IOSimpleDDAsync> readyList = new LinkedList<>();
 
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
+
+  private static final Logger log = LoggerFactory.getLogger(DaosReaderAsync.class);
 
   public DaosReaderAsync(DaosObject object, ReaderConfig config) throws IOException {
     super(object, config);
@@ -85,6 +89,15 @@ public class DaosReaderAsync extends DaosReaderBase {
       currentDesc.release();
     }
     currentDesc = desc;
+
+    if (log.isDebugEnabled()) {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < desc.getAkeyEntries().size(); i++) {
+        sb.append(desc.getEntry(i).getFetchedData().readableBytes()).append(",");
+      }
+      log.debug("desc: " + desc + "\n returned lengths: " + sb);
+    }
+
     return validateLastEntryAndGetBuf(desc.getEntry(entryIdx));
   }
 

@@ -35,6 +35,7 @@ import org.apache.spark.util.collection.ExternalSorter
 class DaosShuffleReader[K, C](
     handle: BaseShuffleHandle[K, _, C],
     blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
+    highlyCompressed: Boolean,
     context: TaskContext,
     readMetrics: ShuffleReadMetricsReporter,
     shuffleIO: DaosShuffleIO,
@@ -49,17 +50,32 @@ class DaosShuffleReader[K, C](
 
   override def read(): Iterator[Product2[K, C]] = {
     val maxBytesInFlight = conf.get(SHUFFLE_DAOS_READ_MAX_BYTES_IN_FLIGHT) * 1024
-    val wrappedStreams = new ShufflePartitionIterator(
-      context,
-      blocksByAddress,
-      serializerManager.wrapStream,
-      maxBytesInFlight,
-      conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
-      conf.get(config.SHUFFLE_DETECT_CORRUPT),
-      conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
-      readMetrics,
-      daosReader
-    ).toCompletionIterator
+    val iterator = if (highlyCompressed != null) {
+      new ShuffleLessPartitionsIterator(
+        context,
+        blocksByAddress,
+        serializerManager.wrapStream,
+        maxBytesInFlight,
+        conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
+        conf.get(config.SHUFFLE_DETECT_CORRUPT),
+        conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
+        readMetrics,
+        daosReader
+      )
+    } else {
+      new ShuffleMorePartitionsIterator(
+        context,
+        blocksByAddress,
+        serializerManager.wrapStream,
+        maxBytesInFlight,
+        conf.get(config.MAX_REMOTE_BLOCK_SIZE_FETCH_TO_MEM),
+        conf.get(config.SHUFFLE_DETECT_CORRUPT),
+        conf.get(config.SHUFFLE_DETECT_CORRUPT_MEMORY),
+        readMetrics,
+        daosReader
+      )
+    }
+    val wrappedStreams = iterator.toCompletionIterator
 
     val serializerInstance = dep.serializer.newInstance()
 
