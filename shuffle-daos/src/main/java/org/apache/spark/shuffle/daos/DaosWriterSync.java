@@ -27,13 +27,11 @@ import io.daos.DaosIOException;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDesc;
 import io.daos.obj.IODataDescSync;
-import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.ObjectPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadFactory;
