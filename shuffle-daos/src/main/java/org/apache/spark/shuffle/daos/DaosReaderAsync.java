@@ -119,7 +119,7 @@ public class DaosReaderAsync extends DaosReaderBase {
       IOSimpleDDAsync taskDesc = (IOSimpleDDAsync) createNextDesc(config.getMaxBytesInFlight());
       if (taskDesc != null) {
         assert Thread.currentThread().getId() == eq.getThreadId() : "current thread " + Thread.currentThread().getId() +
-            "(" + Thread.currentThread().getName() + "), is not expected " + Thread.currentThread().getId() + "(" +
+            "(" + Thread.currentThread().getName() + "), is not expected " + eq.getThreadId() + "(" +
             eq.getThreadName() + ")";
 
         runningDescSet.add(taskDesc);
