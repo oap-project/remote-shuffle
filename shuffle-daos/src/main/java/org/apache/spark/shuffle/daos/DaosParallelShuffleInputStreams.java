@@ -36,12 +36,12 @@ import java.util.LinkedHashMap;
 
 @NotThreadSafe
 /**
- * Multiple input streams for reading shuffled data from multiple map outputs in a mixed way.
+ * Multiple input streams for reading shuffled data from multiple map outputs in parallel.
  *
  * There could be multiple map outputs being read from DAOS at same time. When there is no more data of one map output
  * available in memory, this class tries to open inputstream and read records from other map outputs.
  */
-public class DaosMixShuffleInputStreams extends InputStream {
+public class DaosParallelShuffleInputStreams extends InputStream {
 
   private DaosReader reader;
 
@@ -72,7 +72,7 @@ public class DaosMixShuffleInputStreams extends InputStream {
    * @param metrics
    * read metrics
    */
-  public DaosMixShuffleInputStreams(
+  public DaosParallelShuffleInputStreams(
       DaosReader reader,
       LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
       long maxBytesInFlight, long maxReqSizeShuffleToMem,
