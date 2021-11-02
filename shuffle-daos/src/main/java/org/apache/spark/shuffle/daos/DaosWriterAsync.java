@@ -74,6 +74,10 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   private void flush(NativeBuffer buffer, List<IOSimpleDDAsync> descList) throws IOException {
     if (!descList.isEmpty()) {
+      assert Thread.currentThread().getId() == eq.getThreadId() : "current thread " + Thread.currentThread().getId() +
+          "(" + Thread.currentThread().getName() + "), is not expected " + eq.getThreadId() + "(" +
+          eq.getThreadName() + ")";
+
       for (IOSimpleDDAsync desc : descList) {
         DaosEventQueue.Event event = acquireEvent();
         descSet.add(desc);

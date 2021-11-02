@@ -456,6 +456,9 @@ public interface DaosWriter {
      * prepare for caching merged records
      */
     public void startMerging() {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("start merging for " + partitionId + ". current total size: " + totalSize);
+      }
       reset(true);
       totalSize = 0;
       this.needSpill = false;
