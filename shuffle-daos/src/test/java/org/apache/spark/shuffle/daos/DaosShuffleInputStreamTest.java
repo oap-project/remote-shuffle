@@ -59,9 +59,9 @@ import static org.mockito.ArgumentMatchers.any;
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("javax.management.*")
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
-public class DaosSequentialShuffleInputStreamSyncTest {
+public class DaosShuffleInputStreamTest {
 
-  private static final Logger LOG = LoggerFactory.getLogger(DaosSequentialShuffleInputStreamSyncTest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamTest.class);
 
   @Test
   public void testReadFromOtherThreadCancelMultipleTimes1() throws Exception {
@@ -324,7 +324,7 @@ public class DaosSequentialShuffleInputStreamSyncTest {
               new ShuffleBlockId(shuffleId, i, reduceId)));
     }
 
-    DaosSeqShuffleInputStream is = new DaosSeqShuffleInputStream(daosReader, partSizeMap, 2 * minSize * 1024,
+    DaosShuffleInputStream is = new DaosShuffleInputStream(daosReader, partSizeMap, 2 * minSize * 1024,
         2 * 1024 * 1024, metrics);
     try {
       // verify cancelled task and continuing submission

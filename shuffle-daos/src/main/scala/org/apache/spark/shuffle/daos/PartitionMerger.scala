@@ -151,7 +151,7 @@ class PartitionMerger[K, V, C] (
     map.put((info.getMapId, Integer.valueOf(info.getReduceId)),
       (info.getSize, dummyBlockId))
     private val serializerManager = SparkEnv.get.serializerManager
-    private val daosStream = new DaosSeqShuffleInputStream(reader, map, 1 * 1024 * 1024,
+    private val daosStream = new DaosShuffleInputStream(reader, map, 1 * 1024 * 1024,
       1 * 1024 * 1024, dummyReadMetrics)
     private val wrappedStream = serializerManager.wrapStream(dummyBlockId, daosStream)
     private val deStream = serializer.newInstance().deserializeStream(wrappedStream)

@@ -34,8 +34,16 @@ import org.apache.spark.shuffle.{FetchFailedException, ShuffleReadMetricsReporte
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockBatchId, ShuffleBlockId}
 import org.apache.spark.util.{CompletionIterator, TaskCompletionListener, Utils}
 
-trait ShufflePartitionIterator extends Iterator[(BlockId, InputStream)] {
-  this: Logging =>
+class ShufflePartitionIterator(
+    val context: TaskContext,
+    val blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
+    streamWrapper: (BlockId, InputStream) => InputStream,
+    maxBytesInFlight: Long,
+    maxReqSizeShuffleToMem: Long,
+    detectCorrupt: Boolean,
+    detectCorruptUseExtraMemory: Boolean,
+    shuffleMetrics: ShuffleReadMetricsReporter,
+    daosReader: DaosReader) extends Iterator[(BlockId, InputStream)] with Logging {
 
   protected var lastMapReduce: (String, Integer) = _
   protected var lastMRBlock: (java.lang.Long, BlockId) = _
@@ -47,25 +55,27 @@ trait ShufflePartitionIterator extends Iterator[(BlockId, InputStream)] {
 
   protected val onCompleteCallback = new ShufflePartitionCompletionListener(this)
 
+  private[daos] var inputStream: DaosShuffleInputStream = null
+
   val dummyBlkId = BlockManagerId("-1", "dummy-host", 1024)
 
-  def cleanup: Unit
-
-  def context: TaskContext
-
-  def blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])]
+  initialize
 
   def initialize: Unit = {
     context.addTaskCompletionListener(onCompleteCallback)
     startReading
+
+    inputStream = new DaosShuffleInputStream(daosReader, mapReduceIdMap,
+      maxBytesInFlight, maxReqSizeShuffleToMem, shuffleMetrics)
+    mapReduceIt = mapReduceIdMap.entrySet().iterator()
   }
 
-  protected def getMapReduceId(shuffleBlockId: ShuffleBlockId): (String, Integer) = {
+  private def getMapReduceId(shuffleBlockId: ShuffleBlockId): (String, Integer) = {
     val name = shuffleBlockId.name.split("_")
     (name(2), Integer.valueOf(name(3)))
   }
 
-  protected def startReading: Unit = {
+  private def startReading: Unit = {
     blocksByAddress.foreach(t2 => {
       t2._2.foreach(t3 => {
         val mapReduceId = getMapReduceId(t3._1.asInstanceOf[ShuffleBlockId])
@@ -99,35 +109,6 @@ trait ShufflePartitionIterator extends Iterator[(BlockId, InputStream)] {
     }
   }
 
-  def toCompletionIterator: Iterator[(BlockId, InputStream)] = {
-    CompletionIterator[(BlockId, InputStream), this.type](this,
-      onCompleteCallback.onTaskCompletion(context))
-  }
-}
-
-class ShuffleLessPartitionsIterator(
-    val context: TaskContext,
-    val blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
-    streamWrapper: (BlockId, InputStream) => InputStream,
-    maxBytesInFlight: Long,
-    maxReqSizeShuffleToMem: Long,
-    detectCorrupt: Boolean,
-    detectCorruptUseExtraMemory: Boolean,
-    shuffleMetrics: ShuffleReadMetricsReporter,
-    daosReader: DaosReader) extends ShufflePartitionIterator with Logging {
-
-  private[daos] var inputStream: DaosSeqShuffleInputStream = null
-
-  initialize
-
-  override protected def startReading: Unit = {
-    super.startReading
-
-    inputStream = new DaosSeqShuffleInputStream(daosReader, mapReduceIdMap,
-      maxBytesInFlight, maxReqSizeShuffleToMem, shuffleMetrics)
-    mapReduceIt = mapReduceIdMap.entrySet().iterator()
-  }
-
   override def hasNext: Boolean = {
     (!inputStream.isCompleted()) & mapReduceIt.hasNext
   }
@@ -163,71 +144,16 @@ class ShuffleLessPartitionsIterator(
       detectCorrupt && streamCompressedOrEncryptd))
   }
 
-  override def cleanup: Unit = {
+  def cleanup: Unit = {
     if (inputStream != null) {
       inputStream.close(false)
       inputStream = null;
     }
   }
-}
 
-class ShuffleMorePartitionsIterator(
-    val context: TaskContext,
-    val blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
-    streamWrapper: (BlockId, InputStream) => InputStream,
-    maxBytesInFlight: Long,
-    maxReqSizeShuffleToMem: Long,
-    detectCorrupt: Boolean,
-    detectCorruptUseExtraMemory: Boolean,
-    shuffleMetrics: ShuffleReadMetricsReporter,
-    daosReader: DaosReader) extends ShufflePartitionIterator with Logging {
-
-  private[daos] var inputStream: DaosSeqShuffleInputStream = null
-
-  initialize
-
-  override protected def startReading: Unit = {
-    super.startReading
-
-  }
-
-  override def hasNext: Boolean = {
-    (!inputStream.isCompleted()) & mapReduceIt.hasNext
-  }
-
-  override def next(): (BlockId, InputStream) = {
-    if (!hasNext) {
-      throw new NoSuchElementException
-    }
-    val entry = mapReduceIt.next()
-    lastMapReduce = entry.getKey
-    lastMRBlock = entry.getValue
-    val lastBlockId = lastMRBlock._2.asInstanceOf[ShuffleBlockId]
-    inputStream.nextMap()
-    var input: InputStream = null
-    var streamCompressedOrEncryptd = false
-    try {
-      input = streamWrapper(lastBlockId, inputStream)
-      streamCompressedOrEncryptd = !input.eq(inputStream)
-      if (streamCompressedOrEncryptd && detectCorruptUseExtraMemory) {
-        input = Utils.copyStreamUpTo(input, maxBytesInFlight / 3)
-      }
-    } catch {
-      case e: IOException =>
-        logError(s"got an corrupted block ${inputStream.getCurBlockId} originated from " +
-          s"${dummyBlkId}.", e)
-        throw e
-    } finally {
-      if (input == null) {
-        inputStream.close(false)
-      }
-    }
-    (lastBlockId, new BufferReleasingInputStream(lastMRBlock, input, this,
-      detectCorrupt && streamCompressedOrEncryptd))
-  }
-
-  override def cleanup: Unit = {
-
+  def toCompletionIterator: Iterator[(BlockId, InputStream)] = {
+    CompletionIterator[(BlockId, InputStream), this.type](this,
+      onCompleteCallback.onTaskCompletion(context))
   }
 }
 
@@ -304,7 +230,7 @@ private class BufferReleasingInputStream(
   override def reset(): Unit = delegate.reset()
 }
 
-private class ShufflePartitionCompletionListener(var data: ShufflePartitionIterator)
+private[daos] class ShufflePartitionCompletionListener(var data: ShufflePartitionIterator)
   extends TaskCompletionListener {
 
   override def onTaskCompletion(context: TaskContext): Unit = {

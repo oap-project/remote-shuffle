@@ -162,7 +162,7 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): DaosShuffleReader[K, C]
     = {
-    val baseHandle = handle.asInstanceOf[BaseShuffleHandle]
+    val baseHandle = handle.asInstanceOf[BaseShuffleHandle[K, _, C]]
     val part = SparkEnv.get.conf.get(config.SHUFFLE_MIN_NUM_PARTS_TO_HIGHLY_COMPRESS)
     val highlyCompressed = baseHandle.dependency.partitioner.numPartitions > part
     val blocksByAddress = SparkEnv.get.mapOutputTracker.getMapSizesByExecutorId(handle.shuffleId, startMapIndex,

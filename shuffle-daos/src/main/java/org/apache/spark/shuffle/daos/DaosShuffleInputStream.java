@@ -40,12 +40,12 @@ import java.util.LinkedHashMap;
  *
  * All records in one specific map output are from same KryoSerializer or Java serializer. To facilitate reading
  * multiple map outputs in this one inputstream, the read methods return -1 to indicate the completion of current
- * map output. Caller should call {@link DaosSeqShuffleInputStream#isCompleted()} to check if all map outputs
+ * map output. Caller should call {@link DaosShuffleInputStream#isCompleted()} to check if all map outputs
  * are read.
  *
  * To read more data from next map output, user should call {@link #nextMap()} before read.
  */
-public class DaosSeqShuffleInputStream extends InputStream {
+public class DaosShuffleInputStream extends InputStream {
 
   private DaosReader reader;
 
@@ -76,7 +76,7 @@ public class DaosSeqShuffleInputStream extends InputStream {
    * @param metrics
    * read metrics
    */
-  public DaosSeqShuffleInputStream(
+  public DaosShuffleInputStream(
       DaosReader reader,
       LinkedHashMap<Tuple2<String, Integer>, Tuple2<Long, BlockId>> partSizeMap,
       long maxBytesInFlight, long maxReqSizeShuffleToMem,

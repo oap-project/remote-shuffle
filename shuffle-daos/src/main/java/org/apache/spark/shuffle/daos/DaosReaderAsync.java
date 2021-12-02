@@ -40,13 +40,13 @@ import java.util.Set;
 
 public class DaosReaderAsync extends DaosReaderBase {
 
-  private DaosEventQueue eq;
+  protected DaosEventQueue eq;
 
-  private Set<IOSimpleDDAsync> runningDescSet = new LinkedHashSet<>();
+  protected Set<IOSimpleDDAsync> runningDescSet = new LinkedHashSet<>();
 
-  private LinkedList<IOSimpleDDAsync> readyList = new LinkedList<>();
+  protected LinkedList<IOSimpleDDAsync> readyList = new LinkedList<>();
 
-  private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
+  protected List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
 
   private static final Logger log = LoggerFactory.getLogger(DaosReaderAsync.class);
 
@@ -56,7 +56,7 @@ public class DaosReaderAsync extends DaosReaderBase {
   }
 
   @Override
-  protected IODataDescBase createFetchDataDesc(String reduceId) throws IOException {
+  protected IOSimpleDDAsync createFetchDataDesc(String reduceId) throws IOException {
     return object.createAsyncDataDescForFetch(reduceId, eq.getEqWrapperHdl());
   }
 
@@ -84,7 +84,7 @@ public class DaosReaderAsync extends DaosReaderBase {
     return readFromDaos();
   }
 
-  private ByteBuf enterNewDesc(IOSimpleDDAsync desc) throws IOException {
+  protected ByteBuf enterNewDesc(IOSimpleDDAsync desc) throws IOException {
     if (currentDesc != null) {
       currentDesc.release();
     }
@@ -114,7 +114,7 @@ public class DaosReaderAsync extends DaosReaderBase {
     long start = System.currentTimeMillis();
     long dur = 0L;
     do {
-      eq.pollCompleted(completedList, IOSimpleDDAsync.class, runningDescSet, runningDescSet.size(),
+      eq.pollCompleted(completedList, getIODescClass(), runningDescSet, runningDescSet.size(),
           timeOutMs - dur);
       if (completedList.isEmpty()) {
         dur = System.currentTimeMillis() - start;
@@ -126,7 +126,11 @@ public class DaosReaderAsync extends DaosReaderBase {
     verifyCompleted();
   }
 
-  private ByteBuf readFromDaos() throws IOException {
+  protected Class<? extends IOSimpleDDAsync> getIODescClass() {
+    return IOSimpleDDAsync.class;
+  }
+
+  protected ByteBuf readFromDaos() throws IOException {
     if (runningDescSet.isEmpty()) {
       DaosEventQueue.Event event = acquireEvent();
       IOSimpleDDAsync taskDesc = (IOSimpleDDAsync) createNextDesc(config.getMaxBytesInFlight());
@@ -165,7 +169,7 @@ public class DaosReaderAsync extends DaosReaderBase {
     return event;
   }
 
-  private void verifyCompleted() throws IOException {
+  protected void verifyCompleted() throws IOException {
     IOSimpleDDAsync failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {

@@ -124,6 +124,10 @@ public class DaosShuffleIO {
     return ioManager.getDaosReader(shuffleId);
   }
 
+  public DaosReader getDaosParallelReader(int shuffleId) throws IOException {
+    return ioManager.getDaosParallelReader(shuffleId);
+  }
+
   private String getKey(long appId, int shuffleId) {
     return appId + "" + shuffleId;
   }

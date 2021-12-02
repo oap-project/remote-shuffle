@@ -28,6 +28,7 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.launcher.SparkLauncher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.tukaani.xz.UnsupportedOptionsException;
 
 import java.io.IOException;
 import java.util.Map;
@@ -115,6 +116,11 @@ public class IOManagerSync extends IOManager {
         readerExes == null ? null : readerExes.nextExecutor());
     reader.setReaderMap(readerMap);
     return reader;
+  }
+
+  @Override
+  DaosReader getDaosParallelReader(int shuffleId) throws IOException {
+    throw new UnsupportedOptionsException("parallel read is not supported in sync API yet");
   }
 
   @Override
