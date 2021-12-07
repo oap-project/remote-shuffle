@@ -255,14 +255,14 @@ public class DaosShuffleInputStreamSyncTest {
     int expectedFetchTimes = 32;
     AtomicInteger fetchTimes = new AtomicInteger(0);
     boolean[] succeeded = new boolean[] {true};
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseFetchResult");
     method.setAccessible(true);
     CountDownLatch latch = new CountDownLatch(expectedFetchTimes);
 
     Answer<InvocationOnMock> answer = (invocationOnMock ->
     {
       fetchTimes.getAndIncrement();
-      IODataDesc desc = invocationOnMock.getArgument(0);
+      IODataDescSync desc = invocationOnMock.getArgument(0);
       desc.encode();
       method.invoke(desc);
 
