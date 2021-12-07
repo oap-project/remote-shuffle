@@ -112,6 +112,7 @@ public class DaosWriterTest {
       writer.flush(idx);
       expectedLens.put(idx, size);
     }
+    writer.flushAll();
     long[] lens = writer.getPartitionLens(numPart);
     Assert.assertEquals(numPart, lens.length);
     for (int i = 0; i < numPart; i++) {
@@ -132,10 +133,10 @@ public class DaosWriterTest {
     DaosObject daosObject = Mockito.spy(objectConstructor.newInstance(client, id));
 
     AtomicInteger counter = new AtomicInteger(0);
-    Method method = IODataDesc.class.getDeclaredMethod("succeed");
+    Method method = IODataDescSync.class.getDeclaredMethod("parseUpdateResult");
     method.setAccessible(true);
     Mockito.doAnswer(invoc -> {
-      IODataDesc desc = invoc.getArgument(0);
+      IODataDescSync desc = invoc.getArgument(0);
       desc.encode();
       counter.incrementAndGet();
       if (counter.get() == 5) {
@@ -152,14 +153,14 @@ public class DaosWriterTest {
         .mapId(1)
         .config(writeConfig);
 
-    BoundThreadExecutors executors = new BoundThreadExecutors("read_executors", 1,
+    BoundThreadExecutors executors = new BoundThreadExecutors("write_executors", 1,
         new DaosReaderSync.ReadThreadFactory());
     DaosWriterSync writer = new DaosWriterSync(daosObject, param, executors.nextExecutor());
     for (int i = 0; i < numPart; i++) {
       writer.write(i, new byte[100]);
       writer.flush(i);
     }
-
+    writer.flushAll();
     writer.close();
 
     executors.stop();

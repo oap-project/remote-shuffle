@@ -25,9 +25,9 @@ package org.apache.spark.shuffle.daos
 
 import java.util.Comparator
 
-import org.apache.spark._
+import org.apache.spark.{Aggregator, Partitioner, SparkConf, SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.{MemoryConsumer, TaskMemoryManager}
+import org.apache.spark.memory.{MemoryConsumer, MemoryMode, TaskMemoryManager}
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.ShuffleWriteMetricsReporter
 import org.apache.spark.shuffle.daos.MapPartitionsWriter._
@@ -148,7 +148,8 @@ class MapPartitionsWriter[K, V, C](
       val conf: SparkConf,
       val taskMemManager: TaskMemoryManager,
       val shuffleIO: DaosShuffleIO,
-      val serializer: Serializer) extends MemoryConsumer(taskMemManager) {
+      val serializer: Serializer) extends MemoryConsumer(taskMemManager, taskMemManager.pageSizeBytes(),
+                                          MemoryMode.ON_HEAP) {
     private val totalBufferInitial = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_INITIAL_SIZE).toInt * 1024 * 1024
     private val forceWritePct = conf.get(SHUFFLE_DAOS_WRITE_BUFFER_FORCE_PCT)
     private val partMoveInterval = conf.get(SHUFFLE_DAOS_WRITE_PARTITION_MOVE_INTERVAL)
