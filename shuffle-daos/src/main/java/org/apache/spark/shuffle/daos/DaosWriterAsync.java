@@ -159,6 +159,9 @@ public class DaosWriterAsync extends DaosWriterBase {
           continue;
         }
       }
+      if (log.isDebugEnabled()) {
+        log.debug("written desc: " + desc);
+      }
       desc.release();
     }
     if (failedCnt > 0) {

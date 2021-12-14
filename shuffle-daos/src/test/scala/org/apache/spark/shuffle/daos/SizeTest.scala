@@ -41,5 +41,4 @@ class SizeTest {
       assert(size <= deSize && deSize <= size*1.1)
     })
   }
-
 }

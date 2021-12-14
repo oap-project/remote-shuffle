@@ -84,5 +84,7 @@ public abstract class IOManager {
 
   abstract DaosReader getDaosReader(int shuffleId) throws IOException;
 
+  abstract DaosReader getDaosParallelReader(int shuffleId) throws IOException;
+
   abstract void close() throws IOException;
 }

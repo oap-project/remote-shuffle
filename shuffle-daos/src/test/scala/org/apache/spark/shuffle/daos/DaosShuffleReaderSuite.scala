@@ -187,6 +187,7 @@ class DaosShuffleReaderSuite extends SparkFunSuite with LocalSparkContext {
     val shuffleReader = new DaosShuffleReader[Int, Int](
       shuffleHandle,
       blocksByAddress,
+      false,
       taskContext,
       metrics,
       shuffleIO,

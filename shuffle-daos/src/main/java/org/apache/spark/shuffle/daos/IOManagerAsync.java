@@ -80,6 +80,17 @@ public class IOManagerAsync extends IOManager {
   }
 
   @Override
+  DaosReader getDaosParallelReader(int shuffleId) throws IOException {
+    long appId = parseAppId(conf.getAppId());
+    if (logger.isDebugEnabled()) {
+      logger.debug("getting daosparallelreader for app id: " + appId + ", shuffle id: " + shuffleId);
+    }
+    DaosParallelReaderAsync reader = new DaosParallelReaderAsync(getObject(appId, shuffleId), readerConfig);
+    reader.setReaderMap(readerMap);
+    return reader;
+  }
+
+  @Override
   void close() throws IOException {
     readerMap.keySet().forEach(r -> r.close(true));
     readerMap.clear();

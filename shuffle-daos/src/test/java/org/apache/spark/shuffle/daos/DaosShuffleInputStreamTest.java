@@ -59,9 +59,9 @@ import static org.mockito.ArgumentMatchers.any;
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("javax.management.*")
 @SuppressStaticInitializationFor("io.daos.obj.DaosObjClient")
-public class DaosShuffleInputStreamSyncTest {
+public class DaosShuffleInputStreamTest {
 
-  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamSyncTest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DaosShuffleInputStreamTest.class);
 
   @Test
   public void testReadFromOtherThreadCancelMultipleTimes1() throws Exception {

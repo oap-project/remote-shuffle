@@ -36,11 +36,12 @@ import java.util.LinkedHashMap;
 
 @NotThreadSafe
 /**
- * A inputstream for reading shuffled data being consisted of multiple map outputs.
+ * A inputstream for reading shuffled data being consisted of multiple map outputs one by one.
  *
  * All records in one specific map output are from same KryoSerializer or Java serializer. To facilitate reading
  * multiple map outputs in this one inputstream, the read methods return -1 to indicate the completion of current
- * map output. Caller should call {@link DaosShuffleInputStream#isCompleted()} to check if all map outputs are read.
+ * map output. Caller should call {@link DaosShuffleInputStream#isCompleted()} to check if all map outputs
+ * are read.
  *
  * To read more data from next map output, user should call {@link #nextMap()} before read.
  */

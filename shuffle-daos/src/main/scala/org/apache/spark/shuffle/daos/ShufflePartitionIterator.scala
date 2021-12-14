@@ -35,8 +35,8 @@ import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockBatchId, S
 import org.apache.spark.util.{CompletionIterator, TaskCompletionListener, Utils}
 
 class ShufflePartitionIterator(
-    context: TaskContext,
-    blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
+    val context: TaskContext,
+    val blocksByAddress: Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])],
     streamWrapper: (BlockId, InputStream) => InputStream,
     maxBytesInFlight: Long,
     maxReqSizeShuffleToMem: Long,
@@ -45,25 +45,29 @@ class ShufflePartitionIterator(
     shuffleMetrics: ShuffleReadMetricsReporter,
     daosReader: DaosReader) extends Iterator[(BlockId, InputStream)] with Logging {
 
-  private var lastMapReduce: (String, Integer) = _
-  private var lastMRBlock: (java.lang.Long, BlockId) = _
+  protected var lastMapReduce: (String, Integer) = _
+  protected var lastMRBlock: (java.lang.Long, BlockId) = _
 
-  val dummyBlkId = BlockManagerId("-1", "dummy-host", 1024)
+  // (mapid, reduceid) -> (length, BlockId)
+  protected val mapReduceIdMap = new util.LinkedHashMap[(String, Integer), (java.lang.Long, BlockId)]
+
+  protected var mapReduceIt: util.Iterator[util.Map.Entry[(String, Integer), (java.lang.Long, BlockId)]] = _
+
+  protected val onCompleteCallback = new ShufflePartitionCompletionListener(this)
 
   private[daos] var inputStream: DaosShuffleInputStream = null
 
-  // (mapid, reduceid) -> (length, BlockId)
-  private val mapReduceIdMap = new util.LinkedHashMap[(String, Integer), (java.lang.Long, BlockId)]
-
-  private var mapReduceIt: util.Iterator[util.Map.Entry[(String, Integer), (java.lang.Long, BlockId)]] = _
-
-  private val onCompleteCallback = new ShufflePartitionCompletionListener(this)
+  val dummyBlkId = BlockManagerId("-1", "dummy-host", 1024)
 
   initialize
 
   def initialize: Unit = {
     context.addTaskCompletionListener(onCompleteCallback)
     startReading
+
+    inputStream = new DaosShuffleInputStream(daosReader, mapReduceIdMap,
+      maxBytesInFlight, maxReqSizeShuffleToMem, shuffleMetrics)
+    mapReduceIt = mapReduceIdMap.entrySet().iterator()
   }
 
   private def getMapReduceId(shuffleBlockId: ShuffleBlockId): (String, Integer) = {
@@ -87,10 +91,22 @@ class ShufflePartitionIterator(
       mapReduceIdMap.forEach((key, value) => logDebug(context.taskAttemptId() + ": " +
         key.toString() + " = " + value.toString))
     }
+  }
 
-    inputStream = new DaosShuffleInputStream(daosReader, mapReduceIdMap,
-      maxBytesInFlight, maxReqSizeShuffleToMem, shuffleMetrics)
-    mapReduceIt = mapReduceIdMap.entrySet().iterator()
+  def throwFetchFailedException(
+       blockId: BlockId,
+       address: BlockManagerId,
+       e: Throwable): Nothing = {
+    blockId match {
+      // -1 as mapIndex to avoid removing map output
+      case ShuffleBlockId(shufId, mapId, reduceId) =>
+        throw new FetchFailedException(address, shufId, mapId, -1, reduceId, e)
+      case ShuffleBlockBatchId(shuffleId, mapId, startReduceId, _) =>
+        throw new FetchFailedException(address, shuffleId, mapId, -1, startReduceId, e)
+      case _ =>
+        throw new SparkException(
+          "Failed to get block " + blockId + ", which is not a shuffle block", e)
+    }
   }
 
   override def hasNext: Boolean = {
@@ -124,30 +140,8 @@ class ShufflePartitionIterator(
         inputStream.close(false)
       }
     }
-    (lastBlockId, new BufferReleasingInputStream(lastMapReduce, lastMRBlock, input, this,
+    (lastBlockId, new BufferReleasingInputStream(lastMRBlock, input, this,
       detectCorrupt && streamCompressedOrEncryptd))
-  }
-
-  def throwFetchFailedException(
-      blockId: BlockId,
-      mapIndex: Int,
-      address: BlockManagerId,
-      e: Throwable): Nothing = {
-    blockId match {
-      // -1 as mapIndex to avoid removing map output
-      case ShuffleBlockId(shufId, mapId, reduceId) =>
-        throw new FetchFailedException(address, shufId, mapId, -1, reduceId, e)
-      case ShuffleBlockBatchId(shuffleId, mapId, startReduceId, _) =>
-        throw new FetchFailedException(address, shuffleId, mapId, -1, startReduceId, e)
-      case _ =>
-        throw new SparkException(
-          "Failed to get block " + blockId + ", which is not a shuffle block", e)
-    }
-  }
-
-  def toCompletionIterator: Iterator[(BlockId, InputStream)] = {
-    CompletionIterator[(BlockId, InputStream), this.type](this,
-      onCompleteCallback.onTaskCompletion(context))
   }
 
   def cleanup: Unit = {
@@ -157,6 +151,10 @@ class ShufflePartitionIterator(
     }
   }
 
+  def toCompletionIterator: Iterator[(BlockId, InputStream)] = {
+    CompletionIterator[(BlockId, InputStream), this.type](this,
+      onCompleteCallback.onTaskCompletion(context))
+  }
 }
 
 /**
@@ -164,8 +162,6 @@ class ShufflePartitionIterator(
  * also detects stream corruption if streamCompressedOrEncrypted is true
  */
 private class BufferReleasingInputStream(
-                                          // This is visible for testing
-                                          private val mapreduce: (String, Integer),
                                           private val mrblock: (java.lang.Long, BlockId),
                                           private val delegate: InputStream,
                                           private val iterator: ShufflePartitionIterator,
@@ -180,7 +176,7 @@ private class BufferReleasingInputStream(
     } catch {
       case e: IOException if detectCorruption =>
         IOUtils.closeQuietly(this)
-        iterator.throwFetchFailedException(mrblock._2, mapreduce._1.toInt,
+        iterator.throwFetchFailedException(mrblock._2,
           iterator.dummyBlkId, e)
     }
   }
@@ -202,7 +198,7 @@ private class BufferReleasingInputStream(
     } catch {
       case e: IOException if detectCorruption =>
         IOUtils.closeQuietly(this)
-        iterator.throwFetchFailedException(mrblock._2, mapreduce._1.toInt,
+        iterator.throwFetchFailedException(mrblock._2,
           iterator.dummyBlkId, e)
     }
   }
@@ -215,7 +211,7 @@ private class BufferReleasingInputStream(
     } catch {
       case e: IOException if detectCorruption =>
         IOUtils.closeQuietly(this)
-        iterator.throwFetchFailedException(mrblock._2, mapreduce._1.toInt,
+        iterator.throwFetchFailedException(mrblock._2,
           iterator.dummyBlkId, e)
     }
   }
@@ -226,7 +222,7 @@ private class BufferReleasingInputStream(
     } catch {
       case e: IOException if detectCorruption =>
         IOUtils.closeQuietly(this)
-        iterator.throwFetchFailedException(mrblock._2, mapreduce._1.toInt,
+        iterator.throwFetchFailedException(mrblock._2,
           iterator.dummyBlkId, e)
     }
   }
@@ -234,7 +230,7 @@ private class BufferReleasingInputStream(
   override def reset(): Unit = delegate.reset()
 }
 
-private class ShufflePartitionCompletionListener(var data: ShufflePartitionIterator)
+private[daos] class ShufflePartitionCompletionListener(var data: ShufflePartitionIterator)
   extends TaskCompletionListener {
 
   override def onTaskCompletion(context: TaskContext): Unit = {
