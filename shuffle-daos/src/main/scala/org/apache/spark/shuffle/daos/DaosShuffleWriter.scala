@@ -70,7 +70,7 @@ class DaosShuffleWriter[K, V, C](
         dep.serializer)
     }
     partitionsWriter.insertAll(records)
-    val partitionLengths = partitionsWriter.commitAll
+    val partitionLengths = getPartitionLengths
     mapStatus = MapStatus(dummyBlkId, partitionLengths, mapId)
   }
 
@@ -94,5 +94,9 @@ class DaosShuffleWriter[K, V, C](
         partitionsWriter = null
       }
     }
+  }
+
+  def getPartitionLengths(): Array[Long] = {
+    partitionsWriter.commitAll
   }
 }
