@@ -114,8 +114,7 @@ public class DaosParallelReaderAsync extends DaosReaderAsync {
   }
 
   private void releaseDescSet() {
-    descSet.forEach(desc -> desc.release());
-    descSet.clear();
+    descSet.forEach(desc -> desc.discard());
   }
 
   @Override

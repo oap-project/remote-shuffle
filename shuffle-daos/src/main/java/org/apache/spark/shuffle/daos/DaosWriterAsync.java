@@ -26,11 +26,12 @@ package org.apache.spark.shuffle.daos;
 import io.daos.DaosEventQueue;
 import io.daos.TimedOutException;
 import io.daos.obj.DaosObject;
-import io.daos.obj.IOSimpleDDAsync;
+import io.daos.obj.IODescUpdAsync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -41,15 +42,18 @@ public class DaosWriterAsync extends DaosWriterBase {
 
   private DaosEventQueue eq;
 
-  private Set<IOSimpleDDAsync> descSet = new LinkedHashSet<>();
+  private Set<IODescUpdAsync> descSet = new LinkedHashSet<>();
 
   private List<DaosEventQueue.Attachment> completedList = new LinkedList<>();
+
+  private AsyncDescCache cache;
 
   private static Logger log = LoggerFactory.getLogger(DaosWriterAsync.class);
 
   public DaosWriterAsync(DaosObject object, WriteParam param) throws IOException {
     super(object, param);
     eq = DaosEventQueue.getInstance(0);
+    cache = new AsyncDescCache(param.getConfig().getIoDescCaches());
   }
 
   @Override
@@ -58,7 +62,7 @@ public class DaosWriterAsync extends DaosWriterBase {
     if (buffer == null) {
       return;
     }
-    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl());
+    List<IODescUpdAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), cache);
     flush(buffer, descList);
   }
 
@@ -68,24 +72,33 @@ public class DaosWriterAsync extends DaosWriterBase {
     if (buffer == null) {
       return;
     }
-    List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), false);
+    List<IODescUpdAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), cache, false);
     flush(buffer, descList);
   }
 
-  private void flush(NativeBuffer buffer, List<IOSimpleDDAsync> descList) throws IOException {
+  private void cacheOrRelease(IODescUpdAsync desc) {
+    if (desc.isReusable()) {
+      cache.put(desc);
+    } else {
+      desc.release();
+    }
+  }
+
+  private void flush(NativeBuffer buffer, List<IODescUpdAsync> descList) throws IOException {
     if (!descList.isEmpty()) {
       assert Thread.currentThread().getId() == eq.getThreadId() : "current thread " + Thread.currentThread().getId() +
           "(" + Thread.currentThread().getName() + "), is not expected " + eq.getThreadId() + "(" +
           eq.getThreadName() + ")";
 
-      for (IOSimpleDDAsync desc : descList) {
+      for (IODescUpdAsync desc : descList) {
         DaosEventQueue.Event event = acquireEvent();
         descSet.add(desc);
         desc.setEvent(event);
         try {
           object.updateAsync(desc);
         } catch (Exception e) {
-          desc.release();
+          cacheOrRelease(desc);
+          desc.discard();
           descSet.remove(desc);
           throw e;
         }
@@ -104,7 +117,7 @@ public class DaosWriterAsync extends DaosWriterBase {
       if (buffer == null) {
         continue;
       }
-      List<IOSimpleDDAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), false);
+      List<IODescUpdAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), cache, false);
       flush(buffer, descList);
     }
     waitCompletion();
@@ -116,9 +129,9 @@ public class DaosWriterAsync extends DaosWriterBase {
     try {
       long dur;
       long start = System.currentTimeMillis();
-      while ((left=descSet.size()) > 0 & ((dur = System.currentTimeMillis() - start) < config.getWaitTimeMs())) {
+      while ((left = descSet.size()) > 0 & ((dur = System.currentTimeMillis() - start) < config.getWaitTimeMs())) {
         completedList.clear();
-        eq.pollCompleted(completedList, IOSimpleDDAsync.class, descSet, left, config.getWaitTimeMs() - dur);
+        eq.pollCompleted(completedList, IODescUpdAsync.class, descSet, left, config.getWaitTimeMs() - dur);
         verifyCompleted();
       }
       if (!descSet.isEmpty()) {
@@ -126,9 +139,6 @@ public class DaosWriterAsync extends DaosWriterBase {
       }
     } catch (IOException e) {
       throw new IllegalStateException("failed to complete all running updates. ", e);
-    } finally {
-      descSet.forEach(desc -> desc.release());
-      descSet.clear();
     }
     super.flushAll();
   }
@@ -137,7 +147,7 @@ public class DaosWriterAsync extends DaosWriterBase {
     completedList.clear();
     try {
       DaosEventQueue.Event event = eq.acquireEventBlocking(config.getWaitTimeMs(), completedList,
-          IOSimpleDDAsync.class, descSet);
+          IODescUpdAsync.class, descSet);
       verifyCompleted();
       return event;
     } catch (IOException e) {
@@ -147,11 +157,11 @@ public class DaosWriterAsync extends DaosWriterBase {
   }
 
   private void verifyCompleted() throws IOException {
-    IOSimpleDDAsync failed = null;
+    IODescUpdAsync failed = null;
     int failedCnt = 0;
     for (DaosEventQueue.Attachment attachment : completedList) {
       descSet.remove(attachment);
-      IOSimpleDDAsync desc = (IOSimpleDDAsync) attachment;
+      IODescUpdAsync desc = (IODescUpdAsync) attachment;
       if (!desc.isSucceeded()) {
         failedCnt++;
         if (failed == null) {
@@ -162,12 +172,12 @@ public class DaosWriterAsync extends DaosWriterBase {
       if (log.isDebugEnabled()) {
         log.debug("written desc: " + desc);
       }
-      desc.release();
+      cacheOrRelease(desc);
     }
     if (failedCnt > 0) {
       IOException e = new IOException("failed to write " + failedCnt + " IOSimpleDDAsync. Return code is " +
           failed.getReturnCode() + ". First failed is " + failed);
-      failed.release();
+      cacheOrRelease(failed);
       throw e;
     }
   }
@@ -183,11 +193,83 @@ public class DaosWriterAsync extends DaosWriterBase {
       completedList.clear();
       completedList = null;
     }
+
+    if (descSet.isEmpty()) { // all descs polled
+      cache.release();
+    } else {
+      descSet.forEach(d -> d.discard()); // to be released when poll
+      cache.release(descSet);
+      descSet.clear();
+    }
     super.close();
   }
 
   public void setWriterMap(Map<DaosWriter, Integer> writerMap) {
     writerMap.put(this, 0);
     this.writerMap = writerMap;
+  }
+
+  static class AsyncDescCache implements ObjectCache<IODescUpdAsync> {
+    private int idx;
+    private int total;
+    private IODescUpdAsync[] array;
+
+    public AsyncDescCache(int maxNbr) {
+      this.array = new IODescUpdAsync[maxNbr];
+    }
+
+    @Override
+    public IODescUpdAsync get() {
+      if (idx < total) {
+        return array[idx++];
+      }
+      if (idx < array.length) {
+        array[idx] = newObject();
+        total++;
+        return array[idx++];
+      }
+      throw new IllegalStateException("cache is full, " + total);
+    }
+
+    @Override
+    public IODescUpdAsync newObject() {
+      return new IODescUpdAsync(32);
+    }
+
+    @Override
+    public void put(IODescUpdAsync desc) {
+      if (idx <= 0) {
+        throw new IllegalStateException("more than actual number of IODescUpdAsyncs put back");
+      }
+      if (desc.isDiscarded()) {
+        desc.release();
+        desc = newObject();
+      }
+      array[--idx] = desc;
+    }
+
+    @Override
+    public boolean isFull() {
+      return total == array.length;
+    }
+
+    public void release() {
+      release(Collections.emptySet());
+    }
+
+    private void release(Set<IODescUpdAsync> filterSet) {
+      for (int i = 0; i < Math.min(total, array.length); i++) {
+        IODescUpdAsync desc = array[i];
+        if (desc != null && !filterSet.contains(desc)) {
+          desc.release();
+        }
+      }
+      array = null;
+      idx = 0;
+    }
+
+    protected int getIdx() {
+      return idx;
+    }
   }
 }
