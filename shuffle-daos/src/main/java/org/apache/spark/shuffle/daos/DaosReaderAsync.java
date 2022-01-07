@@ -204,7 +204,7 @@ public class DaosReaderAsync extends DaosReaderBase {
       e = new IllegalStateException(sb.toString());
     }
     readyList.forEach(desc -> desc.release());
-    runningDescSet.forEach(desc -> desc.release());
+    runningDescSet.forEach(desc -> desc.discard()); // to be released when poll
     if (currentDesc != null) {
       currentDesc.release();
       currentDesc = null;

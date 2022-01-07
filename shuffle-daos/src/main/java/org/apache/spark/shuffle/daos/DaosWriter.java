@@ -26,6 +26,7 @@ package org.apache.spark.shuffle.daos;
 import io.daos.BufferAllocator;
 import io.daos.obj.DaosObject;
 import io.daos.obj.IODataDescSync;
+import io.daos.obj.IODescUpdAsync;
 import io.daos.obj.IOSimpleDDAsync;
 import io.netty.buffer.ByteBuf;
 import org.apache.spark.SparkConf;
@@ -140,6 +141,17 @@ public interface DaosWriter {
    * @return
    */
   List<SpillInfo> getSpillInfo(int partitionId);
+
+  interface ObjectCache<T> {
+
+    T get();
+
+    T newObject();
+
+    void put(T object);
+
+    boolean isFull();
+  }
 
   /**
    * Write parameters, including mapId, shuffleId, number of partitions and write config.
@@ -345,16 +357,17 @@ public interface DaosWriter {
     }
 
     /**
-     * create list of {@link IOSimpleDDAsync} each of them has only one akey entry.
+     * create list of {@link IODescUpdAsync} each of them has only one akey entry.
      * DAOS has a constraint that same akey cannot be referenced twice in one IO.
      *
      * @param eqHandle
-     * @return list of {@link IOSimpleDDAsync}
+     * @return list of {@link IODescUpdAsync}
      * @throws IOException
      */
-    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle) throws IOException {
+    public List<IODescUpdAsync> createUpdateDescAsyncs(long eqHandle, ObjectCache<IODescUpdAsync> cache)
+        throws IOException {
       // make sure each spilled data don't span multiple mapId_<seq>s.
-      return createUpdateDescAsyncs(eqHandle, true);
+      return createUpdateDescAsyncs(eqHandle, cache, true);
     }
 
     /**
@@ -367,21 +380,31 @@ public interface DaosWriter {
      * @return list of {@link IOSimpleDDAsync}
      * @throws IOException
      */
-    public List<IOSimpleDDAsync> createUpdateDescAsyncs(long eqHandle, boolean fullBufferOnly) throws IOException {
+    public List<IODescUpdAsync> createUpdateDescAsyncs(long eqHandle, ObjectCache<IODescUpdAsync> cache,
+                                                       boolean fullBufferOnly) throws IOException {
       int nbrOfBuf = bufList.size();
       if ((nbrOfBuf == 0) | (fullBufferOnly & (nbrOfBuf <= 1))) {
         return Collections.emptyList();
       }
       nbrOfBuf -= fullBufferOnly ? 1 : 0;
 
-      List<IOSimpleDDAsync> descList = new ArrayList<>(nbrOfBuf);
+      List<IODescUpdAsync> descList = new ArrayList<>(nbrOfBuf);
       String cmapId = currentMapId();
       long bufSize = 0;
       long offset = needSpill ? 0 : totalSize;
       for (int i = 0; i < nbrOfBuf; i++) {
-        IOSimpleDDAsync desc = object.createAsyncDataDescForUpdate(partitionIdKey, eqHandle);
+        IODescUpdAsync desc;
         ByteBuf buf = bufList.get(i);
-        desc.addEntryForUpdate(cmapId, offset + bufSize, buf);
+        if (!cache.isFull()) {
+          desc = cache.get();
+          desc.reuse();
+          desc.setDkey(partitionIdKey);
+          desc.setAkey(cmapId);
+          desc.setOffset(offset + bufSize);
+          desc.setDataBuffer(buf);
+        } else {
+          desc = new IODescUpdAsync(partitionIdKey, cmapId, offset + bufSize, buf);
+        }
         bufSize += buf.readableBytes();
         descList.add(desc);
       }
@@ -485,6 +508,7 @@ public interface DaosWriter {
     private int totalSubmittedLimit;
     private int threads;
     private boolean fromOtherThreads;
+    private int ioDescCaches;
     private SparkConf conf;
 
     private static final Logger logger = LoggerFactory.getLogger(WriterConfig.class);
@@ -504,6 +528,7 @@ public interface DaosWriter {
       totalInMemSize = (long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MAX_BYTES_IN_FLIGHT()) * 1024;
       totalSubmittedLimit = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SUBMITTED_LIMIT());
       threads = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_THREADS());
+      ioDescCaches = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_ASYNC_DESC_CACHES());
       fromOtherThreads = (boolean)conf
           .get(package$.MODULE$.SHUFFLE_DAOS_WRITE_IN_OTHER_THREAD());
       if (logger.isDebugEnabled()) {
@@ -542,6 +567,10 @@ public interface DaosWriter {
 
     public int getThreads() {
       return threads;
+    }
+
+    public int getIoDescCaches() {
+      return ioDescCaches;
     }
 
     public boolean isFromOtherThreads() {
