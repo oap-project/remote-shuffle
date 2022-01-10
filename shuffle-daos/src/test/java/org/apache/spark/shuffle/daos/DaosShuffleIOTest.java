@@ -75,7 +75,8 @@ public class DaosShuffleIOTest {
 
       DaosObjectId id = PowerMockito.mock(DaosObjectId.class);
       PowerMockito.whenNew(DaosObjectId.class).withArguments(appId, Long.valueOf(shuffleId)).thenReturn(id);
-      Mockito.doNothing().when(id).encode();
+      Mockito.doNothing().when(id).encode(Mockito.anyLong(), Mockito.any(), Mockito.any(), Mockito.any(),
+          Mockito.eq(0));
       Mockito.when(id.isEncoded()).thenReturn(true);
       DaosObject daosObject = PowerMockito.mock(DaosObject.class);
       DaosObjClient client = PowerMockito.mock(DaosObjClient.class);

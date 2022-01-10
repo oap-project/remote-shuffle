@@ -214,7 +214,7 @@ public class DaosWriterAsync extends DaosWriterBase {
     private int total;
     private IODescUpdAsync[] array;
 
-    public AsyncDescCache(int maxNbr) {
+    AsyncDescCache(int maxNbr) {
       this.array = new IODescUpdAsync[maxNbr];
     }
 

@@ -23,6 +23,9 @@
 
 package org.apache.spark.shuffle.daos;
 
+import io.daos.DaosObjClassHint;
+import io.daos.DaosObjectClass;
+import io.daos.DaosObjectType;
 import io.daos.obj.DaosObjClient;
 import io.daos.obj.DaosObject;
 import io.daos.obj.DaosObjectException;
@@ -58,7 +61,9 @@ public abstract class IOManager {
     DaosObject object = objectMap.get(key);
     if (object == null) {
       DaosObjectId id = new DaosObjectId(appId, shuffleId);
-      id.encode();
+      id.encode(objClient.getContPtr(), DaosObjectType.DAOS_OT_DKEY_UINT64,
+          DaosObjectClass.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_CLASS())),
+          DaosObjClassHint.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_HINT())), 0);
       object = objClient.getObject(id);
       objectMap.putIfAbsent(key, object);
       DaosObject activeObject = objectMap.get(key);
