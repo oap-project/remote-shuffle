@@ -250,7 +250,7 @@ public class DaosWriterAsync extends DaosWriterBase {
 
     @Override
     public boolean isFull() {
-      return total == array.length;
+      return idx >= array.length;
     }
 
     public void release() {

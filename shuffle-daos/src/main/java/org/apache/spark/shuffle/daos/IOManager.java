@@ -31,6 +31,8 @@ import io.daos.obj.DaosObject;
 import io.daos.obj.DaosObjectException;
 import io.daos.obj.DaosObjectId;
 import org.apache.spark.SparkConf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
@@ -42,6 +44,8 @@ public abstract class IOManager {
   protected SparkConf conf;
 
   protected DaosObjClient objClient;
+
+  private static Logger log = LoggerFactory.getLogger(IOManager.class);
 
   protected IOManager(SparkConf conf, Map<String, DaosObject> objectMap) {
     this.conf = conf;
@@ -64,7 +68,9 @@ public abstract class IOManager {
       id.encode(objClient.getContPtr(), DaosObjectType.DAOS_OT_DKEY_UINT64,
           DaosObjectClass.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_CLASS())),
           DaosObjClassHint.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_HINT())), 0);
+//      id.encode(objClient.getContPtr());
       object = objClient.getObject(id);
+      log.info("created new object, oid high: " + object.getOid().getHigh() + ", low: " + object.getOid().getLow());
       objectMap.putIfAbsent(key, object);
       DaosObject activeObject = objectMap.get(key);
       if (activeObject != object) { // release just created DaosObject
@@ -78,6 +84,7 @@ public abstract class IOManager {
         object.open();
       }
     }
+    log.info("oid high: " + object.getOid().getHigh() + ", low: " + object.getOid().getLow());
     return object;
   }
 
