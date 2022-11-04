@@ -68,7 +68,6 @@ public abstract class IOManager {
       id.encode(objClient.getContPtr(), DaosObjectType.DAOS_OT_DKEY_UINT64,
           DaosObjectClass.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_CLASS())),
           DaosObjClassHint.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_HINT())), 0);
-//      id.encode(objClient.getContPtr());
       object = objClient.getObject(id);
       log.info("created new object, oid high: " + object.getOid().getHigh() + ", low: " + object.getOid().getLow());
       objectMap.putIfAbsent(key, object);
