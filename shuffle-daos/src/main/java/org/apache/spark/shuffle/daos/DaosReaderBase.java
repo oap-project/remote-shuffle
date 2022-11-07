@@ -31,7 +31,7 @@ public abstract class DaosReaderBase implements DaosReader {
   protected Tuple2<String, Integer> curMapReduceId;
   protected Tuple2<String, Integer> lastMapReduceIdForSubmit;
   protected Tuple2<String, Integer> lastMapReduceIdForReturn;
-  protected int curOffset;
+  protected long curOffset;
   protected boolean nextMap;
 
   protected IODataDescBase currentDesc;
