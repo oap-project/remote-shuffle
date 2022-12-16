@@ -45,7 +45,7 @@ class DaosShuffleWriterSuite extends SparkFunSuite with SharedSparkContext {
   private var shuffleHandle: BaseShuffleHandle[Int, Int, Int] = _
   private val serializer = new JavaSerializer(conf)
 
-  private val singleBufSize = conf.get(SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE) * 1024 * 1024
+  private val singleBufSize = conf.get(SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE) * 1024
   private val minSize = conf.get(SHUFFLE_DAOS_WRITE_MINIMUM_SIZE) * 1024
 
   override def beforeEach(): Unit = {

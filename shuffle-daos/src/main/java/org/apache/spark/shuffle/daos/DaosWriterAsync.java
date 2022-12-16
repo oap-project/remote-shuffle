@@ -90,6 +90,9 @@ public class DaosWriterAsync extends DaosWriterBase {
           "(" + Thread.currentThread().getName() + "), is not expected " + eq.getThreadId() + "(" +
           eq.getThreadName() + ")";
 
+//      if (!descSet.isEmpty()) {
+//        pollOnce(descSet.size(), 1L);
+//      }
       for (IODescUpdAsync desc : descList) {
         DaosEventQueue.Event event = acquireEvent();
         descSet.add(desc);
@@ -104,8 +107,9 @@ public class DaosWriterAsync extends DaosWriterBase {
         }
       }
       buffer.reset(false);
+
       if (descSet.size() >= config.getAsyncWriteBatchSize()) {
-        waitCompletion();
+        pollOnce(descSet.size(), 1L);
       }
     }
   }
@@ -119,6 +123,7 @@ public class DaosWriterAsync extends DaosWriterBase {
       }
       List<IODescUpdAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), cache, false);
       flush(buffer, descList);
+//      buffer.debugSizes();
     }
     waitCompletion();
   }
@@ -130,9 +135,7 @@ public class DaosWriterAsync extends DaosWriterBase {
       long dur;
       long start = System.currentTimeMillis();
       while ((left = descSet.size()) > 0 & ((dur = System.currentTimeMillis() - start) < config.getWaitTimeMs())) {
-        completedList.clear();
-        eq.pollCompleted(completedList, IODescUpdAsync.class, descSet, left, config.getWaitTimeMs() - dur);
-        verifyCompleted();
+        pollOnce(left, config.getWaitTimeMs() - dur);
       }
       if (!descSet.isEmpty()) {
         throw new TimedOutException("timed out after " + (System.currentTimeMillis() - start));
@@ -141,6 +144,12 @@ public class DaosWriterAsync extends DaosWriterBase {
       throw new IllegalStateException("failed to complete all running updates. ", e);
     }
     super.flushAll();
+  }
+
+  private void pollOnce(int nbr, long timeoutMs) throws IOException {
+    completedList.clear();
+    eq.pollCompleted(completedList, IODescUpdAsync.class, descSet, nbr, timeoutMs);
+    verifyCompleted();
   }
 
   private DaosEventQueue.Event acquireEvent() throws IOException {
@@ -241,7 +250,9 @@ public class DaosWriterAsync extends DaosWriterBase {
       if (idx <= 0) {
         throw new IllegalStateException("more than actual number of IODescUpdAsyncs put back");
       }
-      if (desc.isDiscarded()) {
+      if (!desc.isDiscarded()) {
+        desc.releaseDataBuffer();
+      } else {
         desc.release();
         desc = newObject();
       }
