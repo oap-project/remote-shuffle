@@ -90,10 +90,10 @@ package object daos {
     ConfigBuilder("spark.shuffle.daos.write.buffer.single")
       .doc("size of single buffer for holding data to be written to DAOS")
       .version("3.1.1")
-      .bytesConf(ByteUnit.MiB)
-      .checkValue(v => v >= 1,
-        s"The single DAOS write buffer must be at least 1m")
-      .createWithDefaultString("2m")
+      .bytesConf(ByteUnit.KiB)
+      .checkValue(v => v >= 1 & v <= 10240,
+        s"The single DAOS write buffer must be at least 1k")
+      .createWithDefaultString("256k")
 
   val SHUFFLE_DAOS_WRITE_FLUSH_RECORDS =
     ConfigBuilder("spark.shuffle.daos.write.flush.records")

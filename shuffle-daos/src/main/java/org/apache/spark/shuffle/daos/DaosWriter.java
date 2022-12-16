@@ -240,6 +240,9 @@ public interface DaosWriter {
     private long submittedSize;
     private int nbrOfSubmitted;
 
+    // debug
+//    private List<Integer> sizeList = new ArrayList<>();
+
     private DaosObject object;
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeBuffer.class);
@@ -407,6 +410,8 @@ public interface DaosWriter {
         }
         bufSize += buf.readableBytes();
         descList.add(desc);
+        // debug
+//        sizeList.add(buf.readableBytes());
       }
 
       nbrOfSubmitted = nbrOfBuf;
@@ -493,6 +498,30 @@ public interface DaosWriter {
         seq++;
       }
     }
+
+//    public void debugSizes() {
+//      Collections.sort(sizeList);
+//      long total = 0L;
+//      for (Integer integer : sizeList) {
+//        total += integer;
+//      }
+//      float avg = total * 1.0f / sizeList.size();
+//      int min = sizeList.get(0);
+//      int q1 = sizeList.get(sizeList.size()/4);
+//      int q2 = sizeList.get(sizeList.size()/2);
+//      int q3 = sizeList.get(sizeList.size() * 3 /4);
+//      int max = sizeList.get(sizeList.size() -1);
+//      sizeList.clear();
+//      sizeList = null;
+//      LOG.info("BUFSTATISTICS: " +
+//          "AVG: " + avg +
+//          "MIN: " + min +
+//          "Q1: " + q1 +
+//          "Q2: " + q2 +
+//          "Q3: " + q3 +
+//          "MAX: " + max
+//      );
+//    }
   }
 
   /**
@@ -519,8 +548,7 @@ public interface DaosWriter {
         this.conf = SparkEnv.get().conf();
       }
       warnSmallWrite = (boolean) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_WARN_SMALL_SIZE());
-      bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE())
-          * 1024 * 1024);
+      bufferSize = (int) ((long) conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_SINGLE_BUFFER_SIZE()) * 1024);
       bufferSize += bufferSize * 0.1; // 10% more for metadata overhead and upper layer deviation
       minSize = (int) ((long)conf.get(package$.MODULE$.SHUFFLE_DAOS_WRITE_MINIMUM_SIZE()) * 1024);
       asyncWriteBatchSize = (int)conf.get(package$.MODULE$.SHUFFLE_DAOS_ASYNC_WRITE_BATCH_SIZE());
