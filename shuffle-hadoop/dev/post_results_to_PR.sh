@@ -1,5 +1,3 @@
-USERNAME=benchmarker-RemoteShuffle
-PASSWORD=$BENCHMARKER_PASSWORD
 PULL_REQUEST_NUM=$TRAVIS_PULL_REQUEST
 
 READ_OR_WRITE=$1
@@ -13,6 +11,8 @@ done
 
 echo "$RESULTS"
 
+# setup GITHUB_TOKEN in your environment so that you can access api.github.com without password
+
 message='{"body": "```'
 message+='\n'
 message+="$RESULTS"
@@ -22,5 +22,5 @@ json_message+='```", "event":"COMMENT"}'
 echo "$json_message" > benchmark_results.json
 
 echo "Sending benchmark requests to PR $PULL_REQUEST_NUM"
-curl -XPOST https://${USERNAME}:${PASSWORD}@api.github.com/repos/Intel-bigdata/RemoteShuffle/pulls/${PULL_REQUEST_NUM}/reviews -d @benchmark_results.json
+curl -XPOST https://api.github.com/repos/Intel-bigdata/RemoteShuffle/pulls/${PULL_REQUEST_NUM}/reviews -d @benchmark_results.json
 rm benchmark_results.json
