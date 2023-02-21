@@ -192,7 +192,9 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
   override def stop(): Unit = {
     if (SparkContext.DRIVER_IDENTIFIER.equals(SparkEnv.get.executorId)) {
       shuffleIdSet.forEach(i => {
-        removeShuffle(i)
+        if (shuffleIdSet.contains(i)) { // make sure cleaner is not working on same shuffle id
+          removeShuffle(i)
+        }
       })
       shuffleIdSet.clear()
     }
