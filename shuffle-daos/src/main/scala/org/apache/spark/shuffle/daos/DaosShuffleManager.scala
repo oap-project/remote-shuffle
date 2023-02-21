@@ -30,7 +30,7 @@ import scala.collection.JavaConverters.mapAsJavaMapConverter
 
 import io.daos.DaosClient
 
-import org.apache.spark.{ShuffleDependency, SparkConf, SparkEnv, TaskContext}
+import org.apache.spark.{ShuffleDependency, SparkConf, SparkContext, SparkEnv, TaskContext}
 import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.shuffle._
 import org.apache.spark.shuffle.sort.BypassMergeSortShuffleHandle
@@ -57,6 +57,8 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
     throw new IllegalArgumentException("DaosShuffleManager doesn't support offheap memory in MemoryManager. Please" +
       " disable " + config.MEMORY_OFFHEAP_ENABLED)
   }
+
+  val shuffleIdSet = ConcurrentHashMap.newKeySet[Integer]()
 
   def findHadoopFs: Method = {
     try {
@@ -127,6 +129,7 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       dependency: ShuffleDependency[K, V, C]): ShuffleHandle
     = {
     import DaosShuffleManager._
+    shuffleIdSet.add(shuffleId)
     if (shouldBypassMergeSort(conf, dependency)) {
       // If there are fewer than spark.shuffle.sort.bypassMergeThreshold partitions and we don't
       // need map-side aggregation, then write numPartitions files directly and just concatenate
@@ -172,15 +175,29 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
       metrics, daosShuffleIO, SparkEnv.get.serializerManager)
   }
 
-  override def unregisterShuffle(shuffleId: Int): Boolean = {
+  private def removeShuffle(shuffleId: Int): Unit = {
     logInfo("unregistering shuffle: " + shuffleId)
     taskIdMapsForShuffle.remove(shuffleId)
     daosShuffleIO.removeShuffle(shuffleId)
   }
 
+  override def unregisterShuffle(shuffleId: Int): Boolean = {
+    if (SparkContext.DRIVER_IDENTIFIER.equals(SparkEnv.get.executorId) && shuffleIdSet.remove(shuffleId)) {
+      removeShuffle(shuffleId)
+    }
+  }
+
   override def shuffleBlockResolver: ShuffleBlockResolver = null
 
   override def stop(): Unit = {
+    if (SparkContext.DRIVER_IDENTIFIER.equals(SparkEnv.get.executorId)) {
+      shuffleIdSet.forEach(i => {
+        if (shuffleIdSet.contains(i)) { // make sure cleaner is not working on same shuffle id
+          removeShuffle(i)
+        }
+      })
+      shuffleIdSet.clear()
+    }
     daosShuffleIO.close()
     finalizer()
     ShutdownHookManager.removeShutdownHook(finalizer)
