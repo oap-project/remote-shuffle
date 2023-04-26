@@ -184,6 +184,9 @@ class DaosShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
   override def unregisterShuffle(shuffleId: Int): Boolean = {
     if (SparkContext.DRIVER_IDENTIFIER.equals(SparkEnv.get.executorId) && shuffleIdSet.remove(shuffleId)) {
       removeShuffle(shuffleId)
+      true
+    } else {
+      false
     }
   }
 
