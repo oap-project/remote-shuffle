@@ -89,10 +89,6 @@ public class DaosWriterAsync extends DaosWriterBase {
       assert Thread.currentThread().getId() == eq.getThreadId() : "current thread " + Thread.currentThread().getId() +
           "(" + Thread.currentThread().getName() + "), is not expected " + eq.getThreadId() + "(" +
           eq.getThreadName() + ")";
-
-//      if (!descSet.isEmpty()) {
-//        pollOnce(descSet.size(), 1L);
-//      }
       for (IODescUpdAsync desc : descList) {
         DaosEventQueue.Event event = acquireEvent();
         descSet.add(desc);
@@ -123,7 +119,6 @@ public class DaosWriterAsync extends DaosWriterBase {
       }
       List<IODescUpdAsync> descList = buffer.createUpdateDescAsyncs(eq.getEqWrapperHdl(), cache, false);
       flush(buffer, descList);
-//      buffer.debugSizes();
     }
     waitCompletion();
   }
