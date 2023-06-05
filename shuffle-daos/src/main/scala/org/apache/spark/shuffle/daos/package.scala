@@ -273,14 +273,6 @@ package object daos {
         " than 0.5 .")
       .createWithDefault(0.1)
 
-  val SHUFFLE_DAOS_OBJECT_CLASS =
-    ConfigBuilder("spark.shuffle.daos.object.class")
-      .doc("class of DAOS object for storing shuffled data. It tells DAOS how object data is stored and replicated. " +
-        "Check io.daos.DaosObjectClass for all available classes.")
-      .version("3.1.1")
-      .stringConf
-      .createWithDefault("OC_UNKNOWN")
-
   val SHUFFLE_DAOS_OBJECT_HINT =
     ConfigBuilder("spark.shuffle.daos.object.hint")
       .doc("hint of DAOS object class. It's about data redundancy and sharding in DAOS. Check " +

@@ -64,9 +64,11 @@ public abstract class IOManager {
     String key = getKey(appId, shuffleId);
     DaosObject object = objectMap.get(key);
     if (object == null) {
+      // we use object class hint instead of object class
+      // so set object class to UNKNOWN
       DaosObjectId id = new DaosObjectId(appId, shuffleId);
       id.encode(objClient.getContPtr(), DaosObjectType.DAOS_OT_DKEY_UINT64,
-          DaosObjectClass.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_CLASS())),
+          DaosObjectClass.OC_UNKNOWN,
           DaosObjClassHint.valueOf(conf.get(package$.MODULE$.SHUFFLE_DAOS_OBJECT_HINT())), 0);
       object = objClient.getObject(id);
       log.info("created new object, oid high: " + object.getOid().getHigh() + ", low: " + object.getOid().getLow());

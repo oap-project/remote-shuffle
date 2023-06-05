@@ -81,6 +81,7 @@ public class DaosShuffleIOTest {
       DaosObject daosObject = PowerMockito.mock(DaosObject.class);
       DaosObjClient client = PowerMockito.mock(DaosObjClient.class);
       Mockito.when(client.getObject(id)).thenReturn(daosObject);
+      Mockito.when(daosObject.getOid()).thenReturn(id);
 
       AtomicBoolean open = new AtomicBoolean(false);
       Mockito.when(daosObject.isOpen()).then(invocationOnMock ->
